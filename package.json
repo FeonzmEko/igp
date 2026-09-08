@@ -1,0 +1,11 @@
+{
+  "name": "jingxian-igp-route-planner",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python -m http.server 4173",
+    "build": "node scripts/build.mjs",
+    "check": "node --check app.js && node --check config.js && node scripts/smoke-check.mjs"
+  }
+}

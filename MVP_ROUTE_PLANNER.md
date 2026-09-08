@@ -16,7 +16,9 @@ The app should make the route's trade-off visible: total distance/time, direct-r
 - Plain HTML/CSS/JavaScript keeps the prototype usable offline and easy to hand to a rider.
 - The route preview is an inline SVG so a missing tile provider does not hide the route.
 - Routing uses the public OSRM cycling endpoint when enabled; it falls back to the local preview when the network is unavailable and drops low-priority scenic stops when the requested detour budget would be exceeded.
+- Users can add, remove, reorder, and map-pick explicit waypoints. Automatic POI candidates are ranked by scenery weight and distance offset.
 - GPX 1.1 export and import are implemented with a small XML serializer/parser. Imported `trkpt`, `rtept`, and `wpt` elements are validated before display/export.
+- Elevation is fetched from the configured Open-Elevation-compatible endpoint for online routes when available. Missing GPX elevation remains absent and is never serialized as a measured zero.
 - The built-in Hangzhou -> Qiandao Lake example includes researched scenic leads from publicly indexed Xiaohongshu/Douyin and cycling-route posts. These are labelled as leads and require access/road-condition confirmation.
 
 ## Route selection algorithm
@@ -26,9 +28,9 @@ Do not ask the router for one “scenic” route; ordinary routing engines do no
 - Get a direct baseline from start to end.
 - For each selected waypoint, route start -> waypoint(s) -> end, preserving the user's order. Merge leg geometries and remove the duplicate join coordinate.
 - Compute detour = `(scenicDistance / directDistance) - 1`. Reject or warn when it exceeds the selected limit.
-- For a future automatic mode, rank candidate POIs with a simple score such as `sceneryWeight - distancePenalty - climbPenalty`, then try candidates while respecting the detour budget. Keep this out of the first build unless a reliable POI data source is available.
+- Rank candidate POIs with scenery weight and distance offset, then try candidates while respecting the detour budget. User-provided waypoints take precedence and keep their order.
 
-The route response must be validated before display/export: at least two coordinates, finite numeric longitude/latitude, and no leg errors. Expose partial failures per leg so one unavailable waypoint does not silently produce a wrong file.
+The route response is validated before display/export: at least two coordinates, finite numeric longitude/latitude, and a successful OSRM response. If a waypoint chain cannot be routed, the planner drops lower-priority trailing stops and retries; a fully failed request remains preview-only and is clearly labelled.
 
 ## GPX export contract for IGP
 
@@ -49,28 +51,26 @@ Export standard GPX 1.1 in WGS84 decimal degrees. Use a track (`trk/trkseg/trkpt
 </gpx>
 ```
 
-Use XML escaping for names and descriptions. Preserve elevation only when the routing provider returns it; never emit `NaN` or a made-up zero elevation as if it were measured. Add waypoints (`wpt`) for scenic stops so they remain visible after import. Offer a filename ending in `.gpx` and a UTF-8 Blob download.
+Use XML escaping for names and descriptions. Preserve elevation only when the route or GPX source provides it; never emit `NaN` or a made-up zero elevation as if it were measured. Add waypoints (`wpt`) for scenic stops so they remain visible after import. Offer WGS84 and explicit GCJ-02 export choices, a filename ending in `.gpx`, and a UTF-8 Blob download.
 
-China coordinate-system risk: OSM/OSRM and GPX convention use WGS84, while AMap/IGP displays GCJ-02 in mainland China. Do not silently apply a conversion. Add an explicit export option (`WGS84` default, `GCJ-02 if IGP requires it`) and label it clearly. A conversion implementation should be tested against known points and documented; wrong conversion is worse than a visible offset warning.
+China coordinate-system risk: OSM/OSRM and GPX convention use WGS84, while AMap/IGP displays GCJ-02 in mainland China. The export choice is explicit and labelled; conversion is skipped outside mainland China.
 
-## Minimal module boundaries
+## Current module boundaries
 
 ```text
-src/
-  App.tsx                 # layout and state wiring
-  components/MapView.tsx
-  components/PlannerPanel.tsx
-  services/geocode.ts
-  services/routing.ts     # provider interface + OSRM adapter
-  domain/route.ts         # types, merge legs, detour metrics
-  export/gpx.ts            # pure GPX serializer
+index.html                # layout and controls
+styles.css                # responsive visual system
+config.js                 # runtime provider endpoints
+app.js                    # state wiring, route model, providers, SVG and GPX
+scripts/build.mjs         # static publish build
+scripts/smoke-check.mjs   # dependency-free binding check
 ```
 
-Keep `route.ts` and `gpx.ts` pure and independently testable. Store the current plan in component state/localStorage; no backend is needed for the MVP.
+The route and GPX helpers remain browser-local and validate data before rendering or export. The current plan is stored in `localStorage`; no backend is needed for this MVP.
 
 ## Run and verification
 
-Provide `npm install`, `npm run dev`, and `npm run build` scripts. Runtime configuration should use `VITE_ROUTING_BASE_URL` and `VITE_GEOCODING_BASE_URL`, with public defaults documented. Verify manually that a generated file:
+Provide `npm run dev`, `npm run build`, and `npm run check` scripts. Runtime configuration uses `config.js`, with public defaults documented. Verify with `npm run check`, then manually that a generated file:
 
 - parses as XML and contains GPX 1.1 namespace;
 - has `trkpt` coordinates in `lat/lon` order and no duplicate join explosion;
@@ -81,6 +81,6 @@ Provide `npm install`, `npm run dev`, and `npm run build` scripts. Runtime confi
 
 - Public routing/geocoding quotas or CORS: show provider errors, debounce requests, and keep endpoints configurable; a self-hosted provider is the production path.
 - Coordinate mismatch in China: make datum explicit and provide a short import note.
-- Scenic ranking quality: require user-confirmed waypoints in MVP; automatic POI ranking is a later feature.
+- Scenic ranking quality: automatic candidates are still suggestions; user-confirmed waypoints and current access checks remain necessary.
 - Long routes creating huge GPX files: simplify only for display, preserve the full route for export, and cap/stream points if a provider returns an extreme count.
 - Route legality and surface: show provider metadata when available and warn that the user must verify traffic restrictions, road closures, and private roads.

@@ -70,6 +70,25 @@ button { cursor: pointer; }
 .route-arrow { display: grid; place-items: center; height: 45px; color: var(--ink-faint); }
 .route-arrow svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .field-hint { margin: 9px 0 0; color: var(--ink-faint); font-size: 11px; }
+.waypoint-block { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.waypoint-entry { display: grid; grid-template-columns: minmax(110px, .7fr) minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
+.waypoint-entry input { width: 100%; min-width: 0; height: 36px; padding: 0 10px; color: var(--ink); background: #f7f5ef; border: 1px solid var(--line); border-radius: 2px; outline: none; font-size: 11px; }
+.waypoint-entry input:focus { background: var(--white); border-color: var(--forest); box-shadow: 0 0 0 3px rgba(49, 90, 74, .1); }
+.compact-action { height: 36px; padding: 0 12px; color: var(--forest); background: var(--forest-pale); border: 1px solid var(--forest-pale); border-radius: 2px; font-size: 11px; font-weight: 700; }
+.compact-action:hover { color: var(--white); background: var(--forest); }
+.waypoints-list { display: grid; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; }
+.waypoints-list:empty { display: none; }
+.waypoint-item { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 34px; padding: 4px 0; border-bottom: 1px solid #ebe7de; }
+.waypoint-number { display: grid; place-items: center; width: 20px; height: 20px; color: var(--orange); background: var(--orange-pale); border-radius: 50%; font-family: Georgia, "Songti SC", serif; font-size: 10px; }
+.waypoint-copy { display: grid; gap: 2px; min-width: 0; }
+.waypoint-copy strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.waypoint-copy small { overflow: hidden; color: var(--ink-faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.waypoint-actions { display: flex; gap: 3px; }
+.waypoint-actions button { width: 24px; height: 24px; padding: 0; color: var(--ink-faint); background: transparent; border: 1px solid transparent; border-radius: 2px; font-size: 11px; }
+.waypoint-actions button:hover:not(:disabled) { color: var(--forest); border-color: var(--line); background: #f7f5ef; }
+.waypoint-actions button:disabled { opacity: .28; }
+.waypoint-hint { margin-top: 8px; }
+.map-stage.is-adding { cursor: crosshair; }
 .preference-block { margin-top: 26px; padding-top: 21px; border-top: 1px solid var(--line); }
 .preference-heading { display: flex; justify-content: space-between; align-items: center; }
 .preference-heading output { color: var(--forest); font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
@@ -170,6 +189,8 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
 .summary-footer p { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 15px; color: var(--ink-faint); font-size: 10px; line-height: 1.5; }
 .check-icon { display: grid; flex: 0 0 auto; place-items: center; width: 15px; height: 15px; color: var(--forest); background: var(--forest-pale); border-radius: 50%; font-size: 10px; font-weight: 800; }
 .summary-footer p:has(#export-note-text) { align-items: flex-start; }
+.datum-field { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; margin: 0 0 13px; color: var(--ink-faint); font-size: 10px; }
+.datum-field select { width: 100%; height: 30px; padding: 0 7px; color: var(--ink-soft); background: #f7f5ef; border: 1px solid var(--line); border-radius: 2px; font-size: 10px; }
 .export-button { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; height: 43px; color: var(--white); background: var(--orange); border: 0; border-radius: 2px; font-size: 12px; font-weight: 750; transition: background .2s, transform .2s; }
 .export-button:hover:not(:disabled) { background: #b85e32; transform: translateY(-1px); }
 .export-button:disabled { cursor: not-allowed; opacity: .45; }
@@ -253,6 +274,8 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
   .field input { height: 43px; }
   .constraint-row { grid-template-columns: 1fr; gap: 17px; align-items: start; }
   .compact-field { max-width: 130px; }
+  .waypoint-entry { grid-template-columns: 1fr; }
+  .compact-action { width: 100%; }
   .gpx-import { grid-template-columns: 1fr; gap: 11px; }
   .import-button { width: 100%; }
   .map-card-header { display: block; padding: 22px 17px 17px; }
@@ -260,6 +283,7 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
   .map-stage, #route-map { min-height: 360px; }
   .map-legend { padding: 13px 17px 16px; gap: 11px; }
   .route-summary, .elevation-card, .interop-card { padding: 22px 17px 19px; }
+  .datum-field { grid-template-columns: 1fr; gap: 5px; }
   .metric strong { font-size: 20px; }
   .profile-chart-wrap { height: 160px; }
   .footer { display: grid; gap: 5px; padding-top: 21px; }

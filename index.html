@@ -95,6 +95,20 @@
               </datalist>
               <p class="field-hint">可输入城市、车站、县城、景区、地址，或用「纬度, 经度」精确定位；联网时会自动查找地点。</p>
 
+              <div class="waypoint-block">
+                <div class="preference-heading">
+                  <span class="field-label">手动途经点</span>
+                  <button id="map-add-toggle" class="text-button" type="button">地图加点</button>
+                </div>
+                <div class="waypoint-entry">
+                  <input id="waypoint-name-input" type="text" placeholder="景点名称（可选）" autocomplete="off" />
+                  <input id="waypoint-location-input" type="text" placeholder="地点或 纬度,经度" autocomplete="off" list="location-suggestions" />
+                  <button id="add-waypoint-button" class="compact-action" type="button">加入</button>
+                </div>
+                <ol id="waypoints-list" class="waypoints-list"></ol>
+                <p class="field-hint waypoint-hint">加入后可用上下按钮调整顺序；在线模式会校路并按顺序经过。</p>
+              </div>
+
               <div class="preference-block">
                 <div class="preference-heading">
                   <span class="field-label">风景偏好</span>
@@ -216,6 +230,12 @@
             <ol id="stops-list" class="stops-list"></ol>
             <div class="summary-footer">
               <p id="export-note"><span class="check-icon" aria-hidden="true">✓</span><span id="export-note-text">包含完整道路轨迹与航点，可直接导入 IGP</span></p>
+              <label class="datum-field" for="export-datum">导出坐标基准
+                <select id="export-datum">
+                  <option value="wgs84">WGS84（标准 GPX）</option>
+                  <option value="gcj02">GCJ-02（中国大陆 IGP）</option>
+                </select>
+              </label>
               <button id="export-button" class="export-button" type="button" disabled>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
                 <span>导出 GPX</span>
@@ -258,13 +278,14 @@
               <div class="interop-item"><span class="interop-number">02</span><span><strong>打开 IGP · 导入路线</strong><small>选择刚下载的 `.gpx` 文件即可预览。</small></span></div>
               <div class="interop-item"><span class="interop-number">03</span><span><strong>出发前检查路况</strong><small>本地演示路线需要再确认施工和禁行信息。</small></span></div>
             </div>
-            <div class="interop-footnote"><span class="info-icon">i</span><span>标准 GPX 1.1 · UTF-8 · WGS84 坐标</span></div>
+            <div class="interop-footnote"><span class="info-icon">i</span><span id="export-datum-note">标准 GPX 1.1 · UTF-8 · WGS84 坐标</span></div>
           </div>
         </section>
       </main>
 
       <footer class="footer"><span>景线 / IGP Scenic Route Lab</span><span>把到达，变成值得记住的一段路。</span></footer>
     </div>
-    <script src="app.js" defer></script>
+    <script src="config.js?v=2" defer></script>
+    <script src="app.js?v=2" defer></script>
   </body>
 </html>
