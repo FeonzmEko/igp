@@ -1,0 +1,1178 @@
+(() => {
+  "use strict";
+
+  const NS = "http://www.w3.org/2000/svg";
+  const cityPresets = {
+    "杭州西湖": { lat: 30.241, lon: 120.149 },
+    杭州: { lat: 30.274, lon: 120.155 },
+    千岛湖: { lat: 29.608, lon: 119.024 },
+    上海: { lat: 31.230, lon: 121.473 },
+    "上海站": { lat: 31.24981, lon: 121.45522 },
+    "上海火车站": { lat: 31.24981, lon: 121.45522 },
+    "上海铁路站": { lat: 31.24981, lon: 121.45522 },
+    "海盐县": { lat: 30.52549, lon: 120.94638 },
+    "海盐": { lat: 30.52549, lon: 120.94638 },
+    苏州: { lat: 31.299, lon: 120.585 },
+    南京: { lat: 32.060, lon: 118.796 },
+    北京: { lat: 39.904, lon: 116.407 },
+    成都: { lat: 30.572, lon: 104.066 },
+    重庆: { lat: 29.563, lon: 106.551 },
+    厦门: { lat: 24.479, lon: 118.089 },
+    福州: { lat: 26.074, lon: 119.296 },
+    广州: { lat: 23.129, lon: 113.264 },
+    桂林: { lat: 25.274, lon: 110.299 },
+    昆明: { lat: 25.038, lon: 102.718 },
+    西安: { lat: 34.341, lon: 108.940 },
+    黄山: { lat: 29.715, lon: 118.338 },
+    青岛: { lat: 36.067, lon: 120.382 },
+    拉萨: { lat: 29.652, lon: 91.172 },
+    大理: { lat: 25.607, lon: 100.267 },
+    三亚: { lat: 18.252, lon: 109.512 },
+  };
+
+  // These are research leads for the built-in Hangzhou -> Qiandao Lake example.
+  // They are intentionally labelled as leads: social posts are useful for discovery,
+  // while the rider still needs to confirm access, opening hours and current road conditions.
+  const researchedScenicStops = [
+    {
+      name: "龙井茶园边线",
+      type: "茶山风景",
+      note: "从西湖出发后的茶山视野，适合清晨慢骑",
+      lat: 30.2364,
+      lon: 120.1338,
+      source: "公开骑行笔记线索",
+      sourceUrl: "https://www.baidu.com/s?wd=%E6%9D%AD%E5%B7%9E%20%E8%A5%BF%E6%B9%96%20%E9%BE%99%E4%BA%95%E8%8C%B6%E5%9B%AD%20%E9%AA%91%E8%A1%8C",
+    },
+    {
+      name: "富春江江面观景段",
+      type: "江景路段",
+      note: "沿江开阔视野，作为中途补水和拍照点",
+      lat: 29.7925,
+      lon: 119.5700,
+      source: "公开骑行路线线索",
+      sourceUrl: "https://www.baidu.com/s?wd=%E5%AF%8C%E6%98%A5%E6%B1%9F%20%E9%AA%91%E8%A1%8C%20%E6%9D%AD%E5%B7%9E%E5%8D%83%E5%B2%9B%E6%B9%96",
+    },
+    {
+      name: "小金山观景台",
+      type: "湖景观景台",
+      note: "环湖公路常见打卡点，视野开阔，适合短停",
+      lat: 29.7750,
+      lon: 119.0260,
+      source: "小红书 / 抖音公开攻略线索",
+      sourceUrl: "https://www.baidu.com/s?wd=%E5%8D%83%E5%B2%9B%E6%B9%96%20%E5%B0%8F%E9%87%91%E5%B1%B1%E8%A7%82%E6%99%AF%E5%8F%B0%20%E9%AA%91%E8%A1%8C",
+    },
+    {
+      name: "芹川古村",
+      type: "古村人文",
+      note: "古村落停留点，建议确认当天开放与补给条件",
+      lat: 29.5480,
+      lon: 118.9040,
+      source: "小红书 / 抖音公开攻略线索",
+      sourceUrl: "https://www.baidu.com/s?wd=%E5%8D%83%E5%B2%9B%E6%B9%96%20%E8%8A%B9%E5%B7%9D%E5%8F%A4%E6%9D%91%20%E9%AA%91%E8%A1%8C",
+    },
+  ];
+
+  // Publicly indexed scenic leads for the Shanghai Station -> Haiyan corridor.
+  // Coordinates are WGS84 estimates; the rider should confirm access and road status.
+  const researchedShanghaiHaiyanStops = [
+    {
+      name: "金山城市沙滩",
+      type: "海岸风景",
+      note: "杭州湾北岸的开阔海景，适合作为第一段补给和拍照点",
+      lat: 30.7245,
+      lon: 121.3312,
+      source: "小红书 / 抖音公开骑行攻略线索",
+      sourceUrl: "https://www.baidu.com/s?wd=%E9%87%91%E5%B1%B1%E5%9F%8E%E5%B8%82%E6%B2%99%E6%BB%A9%20%E9%AA%91%E8%A1%8C",
+    },
+    {
+      name: "乍浦九龙山",
+      type: "山海观景",
+      note: "山海相接的短停点，建议避开景区车流高峰",
+      lat: 30.6282,
+      lon: 121.1065,
+      source: "公开骑行路线与短视频攻略线索",
+      sourceUrl: "https://www.baidu.com/s?wd=%E4%B9%8D%E6%B5%A6%E4%B9%9D%E9%BE%99%E5%B1%B1%20%E9%AA%91%E8%A1%8C",
+    },
+    {
+      name: "南北湖",
+      type: "湖畔风景",
+      note: "海盐境内的湖山组合，适合收尾前绕行与休息",
+      lat: 30.5746,
+      lon: 120.8255,
+      source: "小红书 / 抖音公开攻略线索",
+      sourceUrl: "https://www.baidu.com/s?wd=%E6%B5%B7%E7%9B%90%E5%8D%97%E5%8C%97%E6%B9%96%20%E9%AA%91%E8%A1%8C",
+    },
+  ];
+
+  const demoScenicNames = [
+    ["湖岸观景台", "水岸视野", "演示占位点，请出发前自行核对"],
+    ["林道驿站", "林荫缓坡", "演示占位点，请出发前自行核对"],
+    ["古镇骑行码头", "人文停留", "演示占位点，请出发前自行核对"],
+    ["山脊风口", "开阔山景", "演示占位点，请出发前自行核对"],
+    ["溪谷慢行段", "溪流相伴", "演示占位点，请出发前自行核对"],
+    ["田野观景台", "乡野视野", "演示占位点，请出发前自行核对"],
+  ];
+
+  const OSRM_BASE_URL = "https://router.project-osrm.org";
+  const OSRM_TIMEOUT_MS = 12000;
+  const GEOCODER_BASE_URL = "https://nominatim.openstreetmap.org/search";
+  const GEOCODER_TIMEOUT_MS = 8000;
+  const OVERPASS_BASE_URL = "https://overpass-api.de/api/interpreter";
+  const OVERPASS_TIMEOUT_MS = 10000;
+  const geocodeCache = new Map();
+
+  const refs = {
+    form: document.querySelector("#route-form"),
+    start: document.querySelector("#start-input"),
+    end: document.querySelector("#end-input"),
+    startSource: document.querySelector("#start-source"),
+    endSource: document.querySelector("#end-source"),
+    scenic: document.querySelector("#scenic-range"),
+    scenicOutput: document.querySelector("#scenic-output"),
+    detour: document.querySelector("#detour-input"),
+    bikeFriendly: document.querySelector("#bike-friendly"),
+    onlineRouting: document.querySelector("#online-routing"),
+    status: document.querySelector("#form-status"),
+    sampleButton: document.querySelector("#sample-button"),
+    importButton: document.querySelector("#import-button"),
+    importButtonLabel: document.querySelector("#import-button-label"),
+    gpxFileInput: document.querySelector("#gpx-file-input"),
+    importStatus: document.querySelector("#import-status"),
+    routeTitle: document.querySelector("#route-title"),
+    routeKind: document.querySelector("#route-kind"),
+    routePointCount: document.querySelector("#route-point-count"),
+    routeSource: document.querySelector("#route-source"),
+    routeScore: document.querySelector("#route-score"),
+    distance: document.querySelector("#distance-value"),
+    directDistance: document.querySelector("#direct-distance-value"),
+    detourPercent: document.querySelector("#detour-value"),
+    elevation: document.querySelector("#elevation-value"),
+    stops: document.querySelector("#stops-value"),
+    stopsCaption: document.querySelector("#stops-caption"),
+    stopsList: document.querySelector("#stops-list"),
+    exportButton: document.querySelector("#export-button"),
+    exportNote: document.querySelector("#export-note-text"),
+    exportStatus: document.querySelector("#export-status"),
+    mapBackdrop: document.querySelector("#map-backdrop"),
+    mapRoads: document.querySelector("#map-roads"),
+    mapRoute: document.querySelector("#map-route"),
+    mapPoints: document.querySelector("#map-points"),
+    mapLabels: document.querySelector("#map-labels"),
+    profileGrid: document.querySelector("#profile-grid"),
+    profileArea: document.querySelector("#profile-area"),
+    profileLine: document.querySelector("#profile-line"),
+    profileMarkers: document.querySelector("#profile-markers"),
+    profileMid: document.querySelector("#profile-mid"),
+    mapNoteText: document.querySelector("#map-note-text"),
+  };
+
+  let currentRoute = null;
+  let routeSeed = 1;
+  let generationId = 0;
+  const SETTINGS_KEY = "jingxian-route-settings-v1";
+  const MAX_GPX_FILE_SIZE = 20 * 1024 * 1024;
+  const MAX_GPX_ROUTE_POINTS = 50000;
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function persistSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+        start: refs.start.value,
+        end: refs.end.value,
+        scenic: refs.scenic.value,
+        detour: refs.detour.value,
+        bikeFriendly: refs.bikeFriendly.checked,
+        onlineRouting: refs.onlineRouting.checked,
+      }));
+    } catch (_error) {
+      // Private browsing or blocked storage should not affect route generation.
+    }
+  }
+
+  function restoreSettings() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+      if (!stored || typeof stored !== "object") return;
+      if (typeof stored.start === "string" && stored.start.trim()) refs.start.value = stored.start;
+      if (typeof stored.end === "string" && stored.end.trim()) refs.end.value = stored.end;
+      if (stored.scenic !== undefined) refs.scenic.value = String(clamp(Number(stored.scenic) || 72, 0, 100));
+      if (stored.detour !== undefined) refs.detour.value = String(clamp(Number(stored.detour) || 30, 0, 60));
+      if (typeof stored.bikeFriendly === "boolean") refs.bikeFriendly.checked = stored.bikeFriendly;
+      if (typeof stored.onlineRouting === "boolean") refs.onlineRouting.checked = stored.onlineRouting;
+    } catch (_error) {
+      // Ignore malformed or unavailable local settings.
+    }
+  }
+
+  function hashString(value) {
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i += 1) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function seeded(seed) {
+    let state = (seed >>> 0) || 1;
+    return () => {
+      state = Math.imul(1664525, state) + 1013904223;
+      return (state >>> 0) / 4294967296;
+    };
+  }
+
+  function parseLocation(raw, fallbackSeed) {
+    const value = String(raw || "").trim();
+    const coordinateMatch = value.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,，\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (coordinateMatch) {
+      const lat = Number(coordinateMatch[1]);
+      const lon = Number(coordinateMatch[2]);
+      if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+        return { label: value, lat, lon, exact: true };
+      }
+    }
+
+    const exact = cityPresets[value];
+    if (exact) return { label: value, ...exact, exact: true, source: "本地地点库" };
+    const normalized = value.replace(/[\s,，]/g, "").toLowerCase();
+    const matchedKey = Object.keys(cityPresets).find((key) => {
+      const normalizedKey = key.replace(/[\s,，]/g, "").toLowerCase();
+      return normalized.includes(normalizedKey) || normalizedKey.includes(normalized);
+    });
+    if (matchedKey) return { label: value, ...cityPresets[matchedKey], exact: true, source: "本地地点库" };
+
+    // A deterministic fallback keeps the offline prototype usable while making the limitation visible.
+    const random = seeded(hashString(`${value}:${fallbackSeed}`));
+    const lat = 24 + random() * 13;
+    const lon = 103 + random() * 17;
+    return { label: value || "未命名地点", lat, lon, exact: false, source: "待定位" };
+  }
+
+  async function geocodeLocation(raw, fallbackSeed) {
+    const value = String(raw || "").trim();
+    const parsed = parseLocation(value, fallbackSeed);
+    if (parsed.exact) return parsed;
+    if (!value) return parsed;
+    const cached = geocodeCache.get(value);
+    if (cached) return { ...cached, label: value };
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), GEOCODER_TIMEOUT_MS);
+    try {
+      const params = new URLSearchParams({
+        q: `${value}, 中国`,
+        format: "jsonv2",
+        limit: "1",
+        countrycodes: "cn",
+        "accept-language": "zh-CN",
+      });
+      const response = await fetch(`${GEOCODER_BASE_URL}?${params.toString()}`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const results = await response.json();
+      const result = Array.isArray(results) ? results[0] : null;
+      const lat = result ? Number(result.lat) : NaN;
+      const lon = result ? Number(result.lon) : NaN;
+      if (!result || !Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("没有匹配的地点");
+      const resolved = {
+        label: value,
+        lat,
+        lon,
+        exact: true,
+        geocoded: true,
+        source: "公开地图地理编码",
+        displayName: String(result.display_name || "").slice(0, 180),
+      };
+      geocodeCache.set(value, resolved);
+      return resolved;
+    } catch (error) {
+      const message = error?.name === "AbortError" ? "公开地图定位超时" : (error?.message || "公开地图定位失败");
+      return { ...parsed, geocodeError: message };
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  function routeRatioAndOffset(start, end, point) {
+    const latitudeScale = Math.cos((((start.lat + end.lat) / 2) * Math.PI) / 180) || 1;
+    const dx = (end.lon - start.lon) * latitudeScale;
+    const dy = end.lat - start.lat;
+    const lengthSquared = dx * dx + dy * dy || 1;
+    const pointX = (point.lon - start.lon) * latitudeScale;
+    const ratio = clamp((pointX * dx + (point.lat - start.lat) * dy) / lengthSquared, 0, 1);
+    const projected = { lon: start.lon + (dx * ratio) / latitudeScale, lat: start.lat + dy * ratio };
+    return { ratio, offsetKm: haversineKm(point, projected) };
+  }
+
+  async function discoverScenicStops(start, end) {
+    const straightDistanceKm = haversineKm(start, end);
+    // Very large bounding boxes are noisy and expensive; curated leads still cover the main long routes.
+    if (!Number.isFinite(straightDistanceKm) || straightDistanceKm > 350) return { stops: [], skipped: true };
+    const padding = clamp(0.08 + straightDistanceKm / 1800, 0.08, 0.28);
+    const south = Math.min(start.lat, end.lat) - padding;
+    const north = Math.max(start.lat, end.lat) + padding;
+    const west = Math.min(start.lon, end.lon) - padding;
+    const east = Math.max(start.lon, end.lon) + padding;
+    const query = `[out:json][timeout:8];(nwr["tourism"~"attraction|viewpoint|museum|theme_park"](${south},${west},${north},${east});nwr["historic"](${south},${west},${north},${east});nwr["natural"~"beach|water|peak|wood"](${south},${west},${north},${east}););out center tags;`;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${OVERPASS_BASE_URL}?data=${encodeURIComponent(query)}`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const elements = Array.isArray(payload?.elements) ? payload.elements : [];
+      const candidates = elements.map((element) => {
+        const tags = element.tags || {};
+        const lat = Number(element.lat ?? element.center?.lat);
+        const lon = Number(element.lon ?? element.center?.lon);
+        const name = String(tags["name:zh"] || tags["name:zh-Hans"] || tags.name || "").trim();
+        if (!name || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        const position = routeRatioAndOffset(start, end, { lat, lon });
+        const type = tags.tourism === "viewpoint" ? "观景台" : tags.natural === "water" ? "水岸风景" : tags.historic ? "历史人文" : "沿线景点";
+        return {
+          name: name.slice(0, 70),
+          type,
+          note: "公开地图 POI，建议出发前核对开放与骑行可达性",
+          source: "OpenStreetMap 公共 POI",
+          sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
+          lat,
+          lon,
+          ratio: position.ratio,
+          offsetKm: position.offsetKm,
+        };
+      }).filter(Boolean)
+        .filter((candidate) => candidate.offsetKm <= Math.max(9, straightDistanceKm * 0.12))
+        .sort((a, b) => (a.offsetKm - b.offsetKm) || (a.ratio - b.ratio));
+      const unique = [];
+      const seen = new Set();
+      candidates.forEach((candidate) => {
+        const key = candidate.name.replace(/\s+/g, "").toLowerCase();
+        if (!seen.has(key) && unique.length < 8) {
+          seen.add(key);
+          unique.push(candidate);
+        }
+      });
+      return { stops: unique, skipped: false };
+    } catch (_error) {
+      return { stops: [], skipped: false };
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  function haversineKm(a, b) {
+    const radius = 6371;
+    const lat1 = (a.lat * Math.PI) / 180;
+    const lat2 = (b.lat * Math.PI) / 180;
+    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+    const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    return 2 * radius * Math.asin(Math.sqrt(h));
+  }
+
+  function localNameIs(node, name) {
+    return String(node.localName || node.nodeName || "").split(":").pop().toLowerCase() === name;
+  }
+
+  function elementsNamed(root, name) {
+    return Array.from(root.getElementsByTagName("*")).filter((node) => localNameIs(node, name));
+  }
+
+  function directChildText(node, name, maxLength = 500) {
+    const child = Array.from(node.children || []).find((item) => localNameIs(item, name));
+    return child ? child.textContent.trim().slice(0, maxLength) : "";
+  }
+
+  function parseGpxPoint(node, kind, index) {
+    const rawLat = node.getAttribute("lat");
+    const rawLon = node.getAttribute("lon");
+    const lat = rawLat === null || rawLat.trim() === "" ? NaN : Number(rawLat);
+    const lon = rawLon === null || rawLon.trim() === "" ? NaN : Number(rawLon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      throw new Error(`${kind} 第 ${index + 1} 个点的经纬度无效。`);
+    }
+    const rawElevation = directChildText(node, "ele", 40);
+    const parsedElevation = rawElevation === "" ? NaN : Number(rawElevation);
+    return {
+      lat,
+      lon,
+      ele: Number.isFinite(parsedElevation) ? parsedElevation : null,
+      hasElevation: Number.isFinite(parsedElevation),
+      name: directChildText(node, "name", 80),
+      description: directChildText(node, "desc", 500) || directChildText(node, "cmt", 500),
+      gpxType: directChildText(node, "type", 80),
+    };
+  }
+
+  function fillMissingElevations(points) {
+    const known = points.map((point, index) => point.hasElevation ? index : -1).filter((index) => index >= 0);
+    if (!known.length) {
+      points.forEach((point) => { point.ele = 0; });
+      return;
+    }
+    let leftIndex = known[0];
+    for (let i = 0; i < leftIndex; i += 1) points[i].ele = points[leftIndex].ele;
+    for (let knownIndex = 1; knownIndex < known.length; knownIndex += 1) {
+      const rightIndex = known[knownIndex];
+      const leftElevation = points[leftIndex].ele;
+      const rightElevation = points[rightIndex].ele;
+      for (let i = leftIndex + 1; i < rightIndex; i += 1) {
+        const ratio = (i - leftIndex) / (rightIndex - leftIndex);
+        points[i].ele = leftElevation + (rightElevation - leftElevation) * ratio;
+      }
+      leftIndex = rightIndex;
+    }
+    for (let i = leftIndex + 1; i < points.length; i += 1) points[i].ele = points[leftIndex].ele;
+  }
+
+  function cumulativeDistances(points) {
+    const distances = [0];
+    for (let i = 1; i < points.length; i += 1) distances.push(distances[i - 1] + haversineKm(points[i - 1], points[i]));
+    return distances;
+  }
+
+  function parseGpxDocument(source, fileName) {
+    const xml = new DOMParser().parseFromString(source, "application/xml");
+    if (xml.getElementsByTagName("parsererror").length || !xml.documentElement || !localNameIs(xml.documentElement, "gpx")) {
+      throw new Error("文件不是有效的 GPX XML。");
+    }
+    const version = (xml.documentElement.getAttribute("version") || "").trim();
+    if (version && version !== "1.1") throw new Error(`仅支持 GPX 1.1，当前文件版本为 ${version}。`);
+
+    const trackNodes = elementsNamed(xml, "trkpt");
+    const routeNodes = elementsNamed(xml, "rtept");
+    const waypointNodes = elementsNamed(xml, "wpt");
+    const tracks = trackNodes.map((node, index) => parseGpxPoint(node, "trkpt", index));
+    const routePoints = routeNodes.map((node, index) => parseGpxPoint(node, "rtept", index));
+    const waypoints = waypointNodes.map((node, index) => parseGpxPoint(node, "wpt", index));
+    const points = tracks.length >= 2 ? tracks : routePoints;
+    const sourceKind = tracks.length >= 2 ? "轨迹" : "路线";
+    if (points.length < 2) throw new Error("GPX 至少需要 2 个 trkpt 或 rtept 才能形成路线。");
+    if (points.length > MAX_GPX_ROUTE_POINTS) throw new Error(`路线包含 ${points.length.toLocaleString("zh-CN")} 个点，超过 ${MAX_GPX_ROUTE_POINTS.toLocaleString("zh-CN")} 点的导入上限。`);
+
+    fillMissingElevations(points);
+    const distances = cumulativeDistances(points);
+    let elevationGain = 0;
+    for (let i = 1; i < points.length; i += 1) elevationGain += Math.max(0, points[i].ele - points[i - 1].ele);
+    const containers = tracks.length >= 2 ? elementsNamed(xml, "trk") : elementsNamed(xml, "rte");
+    const metadata = elementsNamed(xml, "metadata")[0];
+    const fallbackName = String(fileName || "导入路线").replace(/\.gpx$/i, "").slice(0, 120) || "导入路线";
+    const routeName = (containers[0] && directChildText(containers[0], "name", 120)) || (metadata && directChildText(metadata, "name", 120)) || fallbackName;
+    const stops = waypoints.map((waypoint, index) => {
+      const pointIndex = nearestPointIndex(points, waypoint);
+      return {
+        id: index + 1,
+        index: pointIndex,
+        name: waypoint.name || `航点 ${index + 1}`,
+        type: waypoint.gpxType || "GPX 航点",
+        note: waypoint.description || "导入文件中的沿途航点",
+        description: waypoint.description,
+        gpxType: waypoint.gpxType,
+        lat: waypoint.lat,
+        lon: waypoint.lon,
+        ele: waypoint.hasElevation ? waypoint.ele : points[pointIndex].ele,
+        hasElevation: waypoint.hasElevation,
+        km: distances[pointIndex],
+      };
+    });
+    const first = points[0];
+    const last = points[points.length - 1];
+    return {
+      start: { label: first.name || "GPX 起点", lat: first.lat, lon: first.lon, exact: true, source: "GPX 文件" },
+      end: { label: last.name || "GPX 终点", lat: last.lat, lon: last.lon, exact: true, source: "GPX 文件" },
+      points,
+      stops,
+      distanceKm: distances[distances.length - 1],
+      elevationGain: Math.round(elevationGain),
+      score: "GPX",
+      kind: "GPX 导入",
+      routeName,
+      scenic: 50,
+      detour: 0,
+      bikeFriendly: false,
+      seed: hashString(`${fileName}|${points.length}|${first.lat}|${last.lon}`),
+      imported: true,
+      sourceKind,
+      sourceFileName: fileName,
+      researched: false,
+      scenicSource: "GPX 文件航点",
+      source: "gpx",
+    };
+  }
+
+  function buildRoute(start, end, scenic, detour, bikeFriendly, discoveredStops = []) {
+    const seed = hashString(`${start.label}|${end.label}|${scenic}|${detour}|${routeSeed}`);
+    const random = seeded(seed);
+    const pointCount = 54;
+    const midLat = (start.lat + end.lat) / 2;
+    const lonScale = Math.cos((midLat * Math.PI) / 180) || 1;
+    const dx = (end.lon - start.lon) * lonScale;
+    const dy = end.lat - start.lat;
+    const length = Math.max(Math.sqrt(dx * dx + dy * dy), 0.001);
+    const perpendicular = { x: -dy / length, y: dx / length };
+    const detourAmount = Math.max(0.006, length * (0.018 + (detour / 100) * 0.12) * (0.4 + scenic / 100));
+    const phase = random() * Math.PI * 2;
+    const points = [];
+    let previous = null;
+    let distanceKm = 0;
+    let elevation = 42 + random() * 34;
+    let minEle = elevation;
+    let maxEle = elevation;
+
+    for (let i = 0; i < pointCount; i += 1) {
+      const t = i / (pointCount - 1);
+      const wave = Math.sin(t * Math.PI * (1.25 + scenic / 125) + phase) * detourAmount;
+      const secondary = Math.sin(t * Math.PI * 4 + phase * 0.7) * detourAmount * 0.23;
+      const localX = dx * t + perpendicular.x * (wave + secondary);
+      const localY = dy * t + perpendicular.y * (wave + secondary);
+      let lat = start.lat + localY;
+      let lon = start.lon + localX / lonScale;
+      if (i === 0) ({ lat, lon } = start);
+      if (i === pointCount - 1) ({ lat, lon } = end);
+
+      const slope = Math.sin(t * Math.PI * 2.2 + phase) * (23 + scenic * 0.22);
+      const texture = Math.sin(t * Math.PI * 9 + phase * 1.2) * 7;
+      elevation = clamp(elevation + slope * 0.05 + texture * 0.04 + (random() - 0.48) * 4, 18, 820);
+      minEle = Math.min(minEle, elevation);
+      maxEle = Math.max(maxEle, elevation);
+      const point = { lat, lon, ele: elevation };
+      if (previous) distanceKm += haversineKm(previous, point);
+      points.push(point);
+      previous = point;
+    }
+
+    const isHangzhouQiandao = /杭州|西湖/.test(start.label) && /千岛湖/.test(end.label);
+    const isShanghaiHaiyan = /上海|上海站|上海火车站/.test(start.label) && /海盐/.test(end.label);
+    const selectedStops = isHangzhouQiandao
+      ? researchedScenicStops.filter((stop) => detour >= 30 || stop.name !== "芹川古村")
+      : isShanghaiHaiyan
+        ? researchedShanghaiHaiyanStops.filter((stop) => detour >= 18 || stop.name !== "乍浦九龙山")
+      : discoveredStops.length
+        ? discoveredStops.slice(0, scenic >= 78 ? 4 : 3)
+      : [0.2, 0.43, 0.67, 0.84].map((ratio, stopIndex) => {
+        const descriptor = demoScenicNames[(Math.floor(random() * demoScenicNames.length) + stopIndex) % demoScenicNames.length];
+        return { name: descriptor[0], type: descriptor[1], note: descriptor[2], source: "离线演示占位", sourceUrl: "" , ratio };
+      });
+    const stops = selectedStops.map((descriptor, stopIndex) => {
+      const index = descriptor.ratio === undefined
+        ? nearestPointIndex(points, descriptor)
+        : Math.round(descriptor.ratio * (pointCount - 1));
+      const point = points[index];
+      const lat = descriptor.lat === undefined ? point.lat : descriptor.lat;
+      const lon = descriptor.lon === undefined ? point.lon : descriptor.lon;
+      return {
+        id: stopIndex + 1,
+        index,
+        name: descriptor.name,
+        type: descriptor.type,
+        note: descriptor.note,
+        source: descriptor.source || "公开资料线索",
+        sourceUrl: descriptor.sourceUrl || "",
+        lat,
+        lon,
+        ele: descriptor.ele === undefined ? point.ele : descriptor.ele,
+        km: points.slice(0, index + 1).reduce((sum, item, i, arr) => (i ? sum + haversineKm(arr[i - 1], item) : sum), 0),
+      };
+    });
+
+    const scenicFactor = scenic / 100;
+    const score = Math.round(clamp(67 + scenicFactor * 28 - (detour < 8 ? 4 : 0) + (bikeFriendly ? 3 : 0), 0, 99));
+    const kind = scenic >= 78 ? "风景优先" : scenic >= 52 ? "风景均衡" : "效率优先";
+    const routeName = `${start.label} → ${end.label} · ${kind}`;
+    return {
+      start,
+      end,
+      points,
+      stops,
+      distanceKm,
+      directDistanceKm: haversineKm(start, end),
+      detourPercent: haversineKm(start, end) > 0 ? ((distanceKm / haversineKm(start, end)) - 1) * 100 : 0,
+      elevationGain: Math.max(38, Math.round((maxEle - minEle) * (0.74 + scenicFactor * 0.28))),
+      score,
+      kind,
+      routeName,
+      scenic,
+      detour,
+      bikeFriendly,
+      seed,
+      source: "offline",
+      researched: isHangzhouQiandao || isShanghaiHaiyan,
+      scenicSource: isHangzhouQiandao || isShanghaiHaiyan ? "公开骑行内容线索" : discoveredStops.length ? "OpenStreetMap 公共 POI" : "离线演示占位",
+    };
+  }
+
+  function routeDistance(points, endIndex = points.length - 1) {
+    let distanceKm = 0;
+    for (let index = 1; index <= endIndex && index < points.length; index += 1) {
+      distanceKm += haversineKm(points[index - 1], points[index]);
+    }
+    return distanceKm;
+  }
+
+  function nearestPointIndex(points, target) {
+    let nearest = 0;
+    let bestDistance = Infinity;
+    points.forEach((point, index) => {
+      const distance = haversineKm(point, target);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        nearest = index;
+      }
+    });
+    return nearest;
+  }
+
+  function interpolateElevation(points, ratio) {
+    if (!points.length) return 0;
+    const scaled = clamp(ratio, 0, 1) * (points.length - 1);
+    const lower = Math.floor(scaled);
+    const upper = Math.min(points.length - 1, lower + 1);
+    const fraction = scaled - lower;
+    return points[lower].ele + (points[upper].ele - points[lower].ele) * fraction;
+  }
+
+  function applyOnlineGeometry(route, coordinates, distanceMeters) {
+    const points = coordinates.map(([lon, lat], index) => ({
+      lat: Number(lat),
+      lon: Number(lon),
+      ele: interpolateElevation(route.points, coordinates.length > 1 ? index / (coordinates.length - 1) : 0),
+    }));
+    if (points.length < 2 || points.some((point) => !Number.isFinite(point.lat) || !Number.isFinite(point.lon))) {
+      throw new Error("OSRM 返回的道路几何无效");
+    }
+
+    const stops = route.stops.map((stop) => {
+      const index = nearestPointIndex(points, stop);
+      const point = points[index];
+      return {
+        ...stop,
+        index,
+        lat: point.lat,
+        lon: point.lon,
+        ele: point.ele,
+        km: routeDistance(points, index),
+      };
+    });
+    const elevationGain = points.reduce((sum, point, index) => {
+      if (!index) return sum;
+      return sum + Math.max(0, point.ele - points[index - 1].ele);
+    }, 0);
+    return {
+      ...route,
+      points,
+      stops,
+      distanceKm: Number.isFinite(Number(distanceMeters)) ? Number(distanceMeters) / 1000 : routeDistance(points),
+      elevationGain: Math.max(0, Math.round(elevationGain)),
+      source: "osrm",
+      provider: "OSRM cycling",
+    };
+  }
+
+  async function requestOsrm(locations, signal) {
+    const coordinates = locations.map((point) => `${point.lon},${point.lat}`).join(";");
+    const url = `${OSRM_BASE_URL}/route/v1/cycling/${coordinates}?overview=full&geometries=geojson&steps=false`;
+    const response = await fetch(url, { signal, headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const geometry = payload?.routes?.[0]?.geometry?.coordinates;
+    if (payload?.code !== "Ok" || !Array.isArray(geometry)) {
+      throw new Error(payload?.message || "未找到可骑行道路");
+    }
+    return payload.routes[0];
+  }
+
+  async function fetchOnlineRoute(route, signal) {
+    const baseline = await requestOsrm([route.start, route.end], signal);
+    const baselineDistanceKm = Number(baseline.distance) / 1000;
+    const maxDistanceKm = baselineDistanceKm * (1 + route.detour / 100);
+    let candidateStops = route.stops.slice();
+    let selectedPayload = null;
+    let selectedStops = candidateStops;
+    let droppedStops = 0;
+    while (candidateStops.length >= 0) {
+      try {
+        const payload = await requestOsrm([route.start, ...candidateStops, route.end], signal);
+        const distanceKm = Number(payload.distance) / 1000;
+        if (distanceKm <= maxDistanceKm || candidateStops.length === 0) {
+          selectedPayload = payload;
+          selectedStops = candidateStops;
+          droppedStops = route.stops.length - candidateStops.length;
+          break;
+        }
+      } catch (error) {
+        if (candidateStops.length === 0) throw error;
+      }
+      candidateStops = candidateStops.slice(0, -1);
+    }
+    const onlineRoute = applyOnlineGeometry({ ...route, stops: selectedStops }, selectedPayload.geometry.coordinates, selectedPayload.distance);
+    onlineRoute.directDistanceKm = baselineDistanceKm;
+    onlineRoute.detourPercent = baselineDistanceKm > 0 ? ((onlineRoute.distanceKm / baselineDistanceKm) - 1) * 100 : 0;
+    onlineRoute.droppedStops = droppedStops;
+    onlineRoute.routingWarning = droppedStops
+      ? `已按最多绕行 ${route.detour}% 调整，移除 ${droppedStops} 个较远景点。`
+      : "";
+    return onlineRoute;
+  }
+
+  function svgElement(tag, attrs = {}) {
+    const node = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
+    return node;
+  }
+
+  function clear(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function projectFactory(points, width, height, padding = 75) {
+    const lats = points.map((point) => point.lat);
+    const lons = points.map((point) => point.lon);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+    const latSpan = Math.max(maxLat - minLat, 0.01);
+    const lonSpan = Math.max(maxLon - minLon, 0.01);
+    const scale = Math.min((width - padding * 2) / lonSpan, (height - padding * 2) / latSpan);
+    const usedWidth = lonSpan * scale;
+    const usedHeight = latSpan * scale;
+    const offsetX = (width - usedWidth) / 2;
+    const offsetY = (height - usedHeight) / 2;
+    return (point) => ({
+      x: offsetX + (point.lon - minLon) * scale,
+      y: height - offsetY - (point.lat - minLat) * scale,
+    });
+  }
+
+  function renderMap(route) {
+    clear(refs.mapBackdrop);
+    clear(refs.mapRoads);
+    clear(refs.mapRoute);
+    clear(refs.mapPoints);
+    clear(refs.mapLabels);
+    const project = projectFactory(route.points, 900, 560, 82);
+    const startPoint = project(route.points[0]);
+    const endPoint = project(route.points[route.points.length - 1]);
+    const all = route.points.map(project);
+    const routePath = all.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+
+    // Soft terrain and water shapes make the route legible without requiring a map service.
+    const spanX = Math.max(...all.map((point) => point.x)) - Math.min(...all.map((point) => point.x));
+    const spanY = Math.max(...all.map((point) => point.y)) - Math.min(...all.map((point) => point.y));
+    const water = svgElement("path", {
+      class: "map-water",
+      d: `M -30 ${Math.max(280, endPoint.y + 75).toFixed(1)} C 170 ${(endPoint.y + 15).toFixed(1)}, 300 ${(endPoint.y + 120).toFixed(1)}, 480 ${(endPoint.y + 46).toFixed(1)} S 780 ${(endPoint.y + 32).toFixed(1)}, 930 ${(endPoint.y + 90).toFixed(1)} L 930 590 L -30 590 Z`,
+    });
+    refs.mapBackdrop.appendChild(water);
+    const hillPath = svgElement("path", {
+      class: "map-hill",
+      d: `M -20 ${(startPoint.y - 82).toFixed(1)} C 160 ${(startPoint.y - 155).toFixed(1)}, 245 ${(startPoint.y - 30).toFixed(1)}, 405 ${(startPoint.y - 106).toFixed(1)} S 710 ${(startPoint.y - 160).toFixed(1)}, 920 ${(startPoint.y - 62).toFixed(1)} L 920 -20 L -20 -20 Z`,
+    });
+    refs.mapBackdrop.appendChild(hillPath);
+
+    const random = seeded(route.seed ^ 0x9e3779b9);
+    for (let i = 0; i < 10; i += 1) {
+      const x = 25 + random() * 850;
+      const y = 34 + random() * 490;
+      const bend = 45 + random() * 110;
+      const d = `M ${x.toFixed(1)} ${(y + bend).toFixed(1)} C ${(x + 90).toFixed(1)} ${(y - bend).toFixed(1)}, ${(x + 190).toFixed(1)} ${(y + bend * .8).toFixed(1)}, ${(x + 295).toFixed(1)} ${(y - bend * .5).toFixed(1)}`;
+      refs.mapRoads.appendChild(svgElement("path", { class: i % 3 === 0 ? "map-road" : "map-road secondary", d }));
+    }
+
+    refs.mapRoute.appendChild(svgElement("path", { class: "route-halo", d: routePath }));
+    refs.mapRoute.appendChild(svgElement("path", { class: "route-line", d: routePath }));
+    refs.mapRoute.appendChild(svgElement("path", { class: "route-line-inner", d: routePath }));
+
+    const drawMarker = (point, label, kind, anchor) => {
+      const marker = svgElement("circle", { class: `route-marker ${kind}`, cx: point.x, cy: point.y, r: 8 });
+      marker.appendChild(svgElement("title")).textContent = label;
+      refs.mapPoints.appendChild(marker);
+      const text = svgElement("text", { class: "route-label", x: point.x + (anchor === "start" ? 14 : -14), y: point.y - 13, "text-anchor": anchor === "start" ? "start" : "end" });
+      text.textContent = label;
+      refs.mapLabels.appendChild(text);
+    };
+    drawMarker(startPoint, route.start.label, "start", "start");
+    drawMarker(endPoint, route.end.label, "end", "end");
+
+    route.stops.forEach((stop) => {
+      const point = project(stop);
+      const group = svgElement("g", { class: "scenic-marker-group", tabindex: "0", role: "button", "aria-label": stop.name });
+      const pin = svgElement("path", { class: "scenic-pin", d: `M ${point.x} ${(point.y + 10).toFixed(1)} C ${(point.x - 11).toFixed(1)} ${(point.y - 3).toFixed(1)}, ${(point.x - 8).toFixed(1)} ${(point.y - 13).toFixed(1)}, ${point.x} ${(point.y - 13).toFixed(1)} C ${(point.x + 8).toFixed(1)} ${(point.y - 13).toFixed(1)}, ${(point.x + 11).toFixed(1)} ${(point.y - 3).toFixed(1)}, ${point.x} ${(point.y + 10).toFixed(1)} Z` });
+      const core = svgElement("circle", { class: "scenic-pin-core", cx: point.x, cy: point.y - 4, r: 3 });
+      group.appendChild(pin);
+      group.appendChild(core);
+      const labelWidth = Math.max(52, stop.name.length * 11 + 15);
+      const labelX = clamp(point.x - labelWidth / 2, 6, 894 - labelWidth);
+      const labelY = point.y < 85 ? point.y + 24 : point.y - 34;
+      group.appendChild(svgElement("rect", { class: "scenic-label-bg", x: labelX, y: labelY, width: labelWidth, height: 20, rx: 2 }));
+      const text = svgElement("text", { class: "scenic-label", x: labelX + labelWidth / 2, y: labelY + 13, "text-anchor": "middle" });
+      text.textContent = stop.name;
+      group.appendChild(text);
+      group.addEventListener("click", () => highlightStop(stop.id));
+      group.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); highlightStop(stop.id); } });
+      refs.mapPoints.appendChild(group);
+    });
+  }
+
+  function renderStops(route) {
+    clear(refs.stopsList);
+    route.stops.forEach((stop) => {
+      const item = document.createElement("li");
+      item.className = "stop-item";
+      item.dataset.stopId = String(stop.id);
+      const number = document.createElement("span");
+      number.className = "stop-number";
+      number.textContent = String(stop.id).padStart(2, "0");
+      const copy = document.createElement("span");
+      copy.className = "stop-copy";
+      const name = document.createElement("strong");
+      name.textContent = stop.name;
+      const note = document.createElement("small");
+      note.textContent = `${stop.type} · ${stop.note}`;
+      copy.append(name, note);
+      if (stop.source) {
+        const source = document.createElement("small");
+        source.className = "stop-source";
+        source.textContent = `线索：${stop.source}`;
+        copy.append(source);
+      }
+      if (stop.sourceUrl) {
+        const sourceLink = document.createElement("a");
+        sourceLink.className = "stop-source-link";
+        sourceLink.href = stop.sourceUrl;
+        sourceLink.target = "_blank";
+        sourceLink.rel = "noreferrer noopener";
+        sourceLink.textContent = "查看公开线索";
+        sourceLink.addEventListener("click", (event) => event.stopPropagation());
+        copy.append(sourceLink);
+      }
+      const distance = document.createElement("span");
+      distance.className = "stop-distance";
+      distance.textContent = `${stop.km.toFixed(0)} km`;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("aria-label", `在地图上查看${stop.name}`);
+      button.addEventListener("click", () => highlightStop(stop.id));
+      item.append(number, copy, distance, button);
+      refs.stopsList.appendChild(item);
+    });
+  }
+
+  function highlightStop(stopId) {
+    document.querySelectorAll(".stop-item").forEach((item) => item.classList.toggle("is-highlighted", item.dataset.stopId === String(stopId)));
+    document.querySelectorAll(".scenic-marker-group").forEach((group) => group.classList.remove("is-highlighted"));
+    const groups = document.querySelectorAll(".scenic-marker-group");
+    const index = Number(stopId) - 1;
+    if (groups[index]) groups[index].classList.add("is-highlighted");
+    const item = document.querySelector(`.stop-item[data-stop-id="${String(stopId)}"]`);
+    if (item) item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function renderProfile(route) {
+    clear(refs.profileGrid);
+    clear(refs.profileMarkers);
+    const values = route.points.map((point) => point.ele);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = Math.max(max - min, 1);
+    const width = 900;
+    const chartTop = 18;
+    const chartBottom = 183;
+    const coords = values.map((value, index) => ({
+      x: (index / (values.length - 1)) * width,
+      y: chartBottom - ((value - min) / span) * (chartBottom - chartTop),
+    }));
+    const line = coords.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+    refs.profileLine.setAttribute("d", line);
+    refs.profileArea.setAttribute("d", `${line} L ${width} ${chartBottom} L 0 ${chartBottom} Z`);
+    [0, .5, 1].forEach((ratio) => {
+      const y = chartBottom - ratio * (chartBottom - chartTop);
+      refs.profileGrid.appendChild(svgElement("line", { class: "profile-grid-line", x1: 0, y1: y, x2: width, y2: y }));
+      const label = svgElement("text", { class: "profile-grid-label", x: 7, y: y - 5 });
+      label.textContent = `${Math.round(min + span * ratio)}m`;
+      refs.profileGrid.appendChild(label);
+    });
+    route.stops.forEach((stop) => {
+      const index = stop.index;
+      const point = coords[index];
+      refs.profileMarkers.appendChild(svgElement("circle", { class: "profile-marker", cx: point.x, cy: point.y, r: 4 }));
+    });
+    refs.profileMid.textContent = `${route.distanceKm / 2 < 10 ? route.distanceKm.toFixed(1) : (route.distanceKm / 2).toFixed(0)} km`;
+  }
+
+  function escapeXml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  }
+
+  function buildGpx(route) {
+    const createdAt = new Date().toISOString();
+    const trackPoints = route.points.map((point) => `      <trkpt lat="${point.lat.toFixed(6)}" lon="${point.lon.toFixed(6)}"><ele>${point.ele.toFixed(1)}</ele></trkpt>`).join("\n");
+    const routePoints = route.points.filter((_, index) => index % 4 === 0 || index === route.points.length - 1).map((point) => `      <rtept lat="${point.lat.toFixed(6)}" lon="${point.lon.toFixed(6)}"><ele>${point.ele.toFixed(1)}</ele></rtept>`).join("\n");
+    const waypoints = route.stops.map((stop) => {
+      const link = stop.sourceUrl ? `\n    <link href="${escapeXml(stop.sourceUrl)}"><text>${escapeXml(stop.source || "公开资料线索")}</text></link>` : "";
+      return `  <wpt lat="${stop.lat.toFixed(6)}" lon="${stop.lon.toFixed(6)}">\n    <ele>${stop.ele.toFixed(1)}</ele>\n    <name>${escapeXml(stop.name)}</name>\n    <desc>${escapeXml(`${stop.type} · ${stop.note} · 线索：${stop.source || "公开资料"}`)}</desc>${link}\n    <type>scenic</type>\n  </wpt>`;
+    }).join("\n");
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Jingxian IGP Scenic Route Lab" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>${escapeXml(route.routeName)}</name>
+    <desc>${escapeXml(`风景偏好 ${route.scenic}/100 · 最多绕行 ${route.detour}% · ${route.bikeFriendly ? "偏好骑行道路" : "常规道路"}`)}</desc>
+    <time>${createdAt}</time>
+  </metadata>
+${waypoints}
+  <rte>
+    <name>${escapeXml(route.routeName)}</name>
+    <type>cycling</type>
+${routePoints}
+  </rte>
+  <trk>
+    <name>${escapeXml(route.routeName)}</name>
+    <type>cycling</type>
+    <trkseg>
+${trackPoints}
+    </trkseg>
+  </trk>
+</gpx>
+`;
+  }
+
+  function exportGpx() {
+    if (!currentRoute) return;
+    const blob = new Blob([buildGpx(currentRoute)], { type: "application/gpx+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const safeStart = currentRoute.start.label.replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "") || "start";
+    const safeEnd = currentRoute.end.label.replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "") || "end";
+    anchor.href = url;
+    anchor.download = `jingxian-${safeStart}-${safeEnd}.gpx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    refs.exportStatus.textContent = "GPX 已生成，文件可在 IGP 的路线导入中打开。";
+  }
+
+  function setImportStatus(message, isError = false) {
+    refs.importStatus.className = isError ? "import-status error" : "import-status";
+    refs.importStatus.textContent = message;
+  }
+
+  async function importGpxFile(file) {
+    if (!file) return;
+    if (file.size > MAX_GPX_FILE_SIZE) {
+      setImportStatus(`文件过大，请选择不超过 ${MAX_GPX_FILE_SIZE / (1024 * 1024)} MB 的 GPX。`, true);
+      return;
+    }
+    refs.importButton.disabled = true;
+    refs.importButtonLabel.textContent = "读取中…";
+    setImportStatus("正在读取 GPX…");
+    try {
+      const source = await file.text();
+      const route = parseGpxDocument(source, file.name);
+      render(route, []);
+      const waypointText = route.stops.length ? `，含 ${route.stops.length} 个航点` : "";
+      setImportStatus(`已导入 ${route.sourceKind} ${route.points.length} 个点${waypointText}，可直接重新导出。`);
+      refs.exportStatus.textContent = "导入路线已就绪，导出文件会保留轨迹和航点。";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "无法读取这个 GPX 文件。";
+      setImportStatus(message, true);
+    } finally {
+      refs.importButton.disabled = false;
+      refs.importButtonLabel.textContent = "导入 GPX";
+      refs.gpxFileInput.value = "";
+    }
+  }
+
+  function scenicLabel(value) {
+    if (value >= 78) return "风景优先";
+    if (value >= 52) return "风景均衡";
+    return "效率优先";
+  }
+
+  function formatLocationSource(location) {
+    if (location?.source === "GPX 文件") return "GPX 文件";
+    if (location?.geocoded) return "公开地图已定位";
+    if (location?.source === "本地地点库") return "本地地点库";
+    if (location?.exact) return "坐标输入";
+    if (location?.geocodeError) return "定位失败 · 可改用坐标";
+    return "等待定位";
+  }
+
+  function updateSlider() {
+    const value = Number(refs.scenic.value);
+    refs.scenicOutput.textContent = `${value} / 100`;
+    const percent = `${value}%`;
+    refs.scenic.style.background = `linear-gradient(90deg, var(--forest) 0%, var(--orange) ${percent}, #d9d4c9 ${percent})`;
+    document.querySelectorAll(".quick-value").forEach((button) => {
+      button.classList.toggle("is-active", Math.abs(Number(button.dataset.scenic) - value) <= 4);
+    });
+  }
+
+  function render(route, warnings) {
+    currentRoute = route;
+    refs.routeTitle.textContent = `${route.start.label} → ${route.end.label}`;
+    refs.routeKind.textContent = route.kind;
+    refs.routePointCount.textContent = `${route.points.length} 个轨迹点`;
+    const online = route.source === "osrm";
+    const imported = route.source === "gpx";
+    refs.routeSource.textContent = online ? "OSRM 道路轨迹" : imported ? "GPX 导入" : "离线示意";
+    refs.routeSource.classList.toggle("online", online);
+    refs.mapNoteText.textContent = online ? "OSRM cycling 道路轨迹 · 轨迹可导入 IGP" : imported ? "GPX 导入轨迹 · 可重新导出" : "离线示意路线 · 轨迹可导入 IGP";
+    refs.routeScore.textContent = `${route.score}`;
+    refs.distance.textContent = route.distanceKm < 10 ? route.distanceKm.toFixed(1) : route.distanceKm.toFixed(0);
+    if (refs.directDistance) {
+      const direct = Number.isFinite(Number(route.directDistanceKm)) ? Number(route.directDistanceKm) : haversineKm(route.start, route.end);
+      refs.directDistance.textContent = direct < 10 ? direct.toFixed(1) : direct.toFixed(0);
+    }
+    if (refs.detourPercent) {
+      const detourPercent = Number.isFinite(Number(route.detourPercent)) ? Number(route.detourPercent) : 0;
+      refs.detourPercent.textContent = `${Math.max(0, detourPercent).toFixed(0)}%`;
+    }
+    if (refs.startSource) refs.startSource.textContent = formatLocationSource(route.start);
+    if (refs.endSource) refs.endSource.textContent = formatLocationSource(route.end);
+    refs.elevation.textContent = route.elevationGain.toLocaleString("zh-CN");
+    refs.stops.textContent = String(route.stops.length);
+    refs.stopsCaption.textContent = route.scenic >= 78 ? "风景偏好精选" : "自动挑选";
+    const exportable = Boolean(route.imported || route.source === "osrm");
+    refs.exportButton.disabled = !exportable;
+    refs.exportStatus.textContent = "";
+    if (refs.exportNote) refs.exportNote.textContent = exportable
+      ? "包含完整道路轨迹与航点，可直接导入 IGP"
+      : route.source === "offline"
+        ? "当前是离线示意，仅供预览；开启在线道路校路后才能导出"
+        : "当前路线不可导出，请先生成有效道路轨迹";
+    renderMap(route);
+    renderStops(route);
+    renderProfile(route);
+    refs.status.className = warnings.length ? "form-status warning" : "form-status";
+    const researchText = route.scenicSource === "OpenStreetMap 公共 POI"
+      ? "沿线景点来自公开地图 POI，仍需出发前核对"
+      : route.researched
+        ? "沿线景点来自公开骑行内容线索，仍需出发前核对"
+        : route.imported
+          ? "航点来自导入的 GPX 文件"
+          : "景点为离线演示占位";
+    const routingText = route.routingWarning ? ` ${route.routingWarning}` : "";
+    refs.status.textContent = warnings.length ? warnings.join(" ") : `${online ? "已按 OSRM cycling 道路校路" : "已生成离线示意路线"}：${route.points.length} 个轨迹点和 ${route.stops.length} 个风景航点。${researchText}。${routingText}`;
+  }
+
+  async function generateRoute() {
+    const thisGeneration = ++generationId;
+    const startInput = String(refs.start.value || "").trim();
+    const endInput = String(refs.end.value || "").trim();
+    if (!startInput || !endInput) {
+      refs.status.className = "form-status warning";
+      refs.status.textContent = "请先填写出发地和目的地。";
+      return;
+    }
+    let start = parseLocation(startInput, 11);
+    let end = parseLocation(endInput, 29);
+    const scenic = clamp(Number(refs.scenic.value) || 0, 0, 100);
+    const detour = clamp(Number(refs.detour.value) || 0, 0, 60);
+    refs.detour.value = String(detour);
+    persistSettings();
+
+    if (refs.onlineRouting.checked && (!start.exact || !end.exact)) {
+      refs.status.className = "form-status warning";
+      refs.status.textContent = "正在查找地点坐标…";
+      const [resolvedStart, resolvedEnd] = await Promise.all([
+        geocodeLocation(startInput, 11),
+        geocodeLocation(endInput, 29),
+      ]);
+      if (thisGeneration !== generationId) return;
+      start = resolvedStart;
+      end = resolvedEnd;
+    }
+    let discoveredStops = [];
+    if (refs.onlineRouting.checked && start.exact && end.exact && !(/杭州|西湖/.test(start.label) && /千岛湖/.test(end.label)) && !(/上海|上海站|上海火车站/.test(start.label) && /海盐/.test(end.label))) {
+      refs.status.textContent = "正在查找沿线公开景点…";
+      const discovery = await discoverScenicStops(start, end);
+      if (thisGeneration !== generationId) return;
+      discoveredStops = discovery.stops;
+    }
+    const route = buildRoute(start, end, scenic, detour, refs.bikeFriendly.checked, discoveredStops);
+    const warnings = [];
+    if (start.geocodeError) warnings.push(`出发地“${start.label}”定位失败（${start.geocodeError}）。`);
+    if (end.geocodeError) warnings.push(`目的地“${end.label}”定位失败（${end.geocodeError}）。`);
+    if (!start.exact && !start.geocodeError) warnings.push(`无法定位“${start.label}”，请换一个更具体的名称或输入纬度,经度。`);
+    if (!end.exact && !end.geocodeError) warnings.push(`无法定位“${end.label}”，请换一个更具体的名称或输入纬度,经度。`);
+    render(route, warnings);
+
+    if (!refs.onlineRouting.checked) return;
+    if (!start.exact || !end.exact) {
+      refs.status.className = "form-status warning";
+      refs.status.textContent = `${warnings.join(" ")} 无法在线校路，请输入更具体的地点或纬度,经度。`;
+      return;
+    }
+
+    refs.status.className = "form-status warning";
+    refs.status.textContent = "正在请求 OSRM cycling 道路轨迹，完成后会替换示意路线…";
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
+    try {
+      const onlineRoute = await fetchOnlineRoute(route, controller.signal);
+      if (thisGeneration !== generationId) return;
+      render(onlineRoute, []);
+    } catch (error) {
+      if (thisGeneration !== generationId) return;
+      const message = error?.name === "AbortError" ? "请求超时" : (error?.message || "网络不可用");
+      render(route, [`在线道路校路失败（${message}），已保留离线示意路线。`]);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  refs.form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    routeSeed += 1;
+    void generateRoute();
+  });
+  refs.start.addEventListener("change", persistSettings);
+  refs.end.addEventListener("change", persistSettings);
+  refs.scenic.addEventListener("input", updateSlider);
+  refs.detour.addEventListener("change", persistSettings);
+  refs.bikeFriendly.addEventListener("change", persistSettings);
+  refs.onlineRouting.addEventListener("change", () => { persistSettings(); void generateRoute(); });
+  refs.exportButton.addEventListener("click", exportGpx);
+  refs.importButton.addEventListener("click", () => refs.gpxFileInput.click());
+  refs.gpxFileInput.addEventListener("change", (event) => {
+    const [file] = event.target.files || [];
+    importGpxFile(file);
+  });
+  refs.sampleButton.addEventListener("click", () => {
+    refs.start.value = "杭州西湖";
+    refs.end.value = "千岛湖";
+    refs.scenic.value = "72";
+    refs.detour.value = "30";
+    refs.bikeFriendly.checked = true;
+    refs.onlineRouting.checked = true;
+    updateSlider();
+    persistSettings();
+    routeSeed += 1;
+    void generateRoute();
+    refs.start.focus();
+  });
+  document.querySelectorAll(".quick-value").forEach((button) => {
+    button.addEventListener("click", () => {
+      refs.scenic.value = button.dataset.scenic;
+      updateSlider();
+    });
+  });
+
+  restoreSettings();
+  updateSlider();
+  void generateRoute();
+})();

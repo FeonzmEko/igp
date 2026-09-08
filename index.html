@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f2eee5" />
+    <meta
+      name="description"
+      content="为 IGP 准备一条更值得骑的风景路线，并导出标准 GPX。"
+    />
+    <title>景线 · IGP 风景骑行路线</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="景线首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img">
+              <path d="M4 23.5 11.5 9l5 9 3.8-5.7L28 23.5" />
+              <path d="M4 26h24" />
+              <circle cx="11.5" cy="9" r="1.7" />
+            </svg>
+          </span>
+          <span class="brand-text">
+            <span class="brand-name">景线</span>
+            <span class="brand-subtitle">IGP 风景骑行路线</span>
+          </span>
+        </a>
+        <div class="topbar-meta" aria-label="当前模式">
+          <span class="mode-pill"><span class="live-dot"></span>浏览器端</span>
+          <span class="format-pill">GPX 1.1</span>
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="intro-grid" aria-labelledby="intro-title">
+          <div class="intro-copy">
+            <p class="eyebrow">01 / SCENIC ROUTE PLANNER</p>
+            <h1 id="intro-title">让 A 到 B 之间，<em>多一点风景。</em></h1>
+            <p class="intro-lede">
+              输入起点和终点，给路线一点可以绕行的空间。景线会把湖岸、林道和观景点编进一条适合骑行的 GPX，直接带进 IGP。
+            </p>
+            <div class="principle-row" aria-label="规划原则">
+              <div class="principle">
+                <span class="principle-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 19 10 5l4 9 2.5-4L20 19"/><path d="M4 19h16"/></svg>
+                </span>
+                <span><strong>风景优先</strong><small>允许合理绕行</small></span>
+              </div>
+              <div class="principle">
+                <span class="principle-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m12 8 3 4-3 4-3-4 3-4Z"/></svg>
+                </span>
+                <span><strong>路点可编辑</strong><small>景点作为 GPX 航点</small></span>
+              </div>
+            </div>
+          </div>
+
+          <section class="planner-panel" aria-labelledby="planner-title">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-index">ROUTE INPUT</p>
+                <h2 id="planner-title">规划一段路线</h2>
+              </div>
+              <button class="text-button" id="sample-button" type="button">载入示例</button>
+            </div>
+
+            <form id="route-form" novalidate>
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label"><span class="field-dot start-dot"></span>出发地</span>
+                  <input id="start-input" name="start" type="text" value="杭州西湖" autocomplete="off" list="location-suggestions" placeholder="城市或 纬度,经度" />
+                  <small class="location-source" id="start-source">本地地点库</small>
+                </label>
+                <span class="route-arrow" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M5 12h13"/><path d="m13 6 6 6-6 6"/></svg>
+                </span>
+                <label class="field">
+                  <span class="field-label"><span class="field-dot end-dot"></span>目的地</span>
+                  <input id="end-input" name="end" type="text" value="千岛湖" autocomplete="off" list="location-suggestions" placeholder="城市或 纬度,经度" />
+                  <small class="location-source" id="end-source">本地地点库</small>
+                </label>
+              </div>
+              <datalist id="location-suggestions">
+                <option value="杭州西湖"></option>
+                <option value="千岛湖"></option>
+                <option value="上海站"></option>
+                <option value="海盐县"></option>
+                <option value="金山城市沙滩"></option>
+                <option value="南北湖"></option>
+                <option value="苏州"></option>
+                <option value="南京"></option>
+                <option value="30.52549, 120.94638"></option>
+              </datalist>
+              <p class="field-hint">可输入城市、车站、县城、景区、地址，或用「纬度, 经度」精确定位；联网时会自动查找地点。</p>
+
+              <div class="preference-block">
+                <div class="preference-heading">
+                  <span class="field-label">风景偏好</span>
+                  <output id="scenic-output" for="scenic-range">72 / 100</output>
+                </div>
+                <div class="range-wrap">
+                  <span class="range-caption">效率</span>
+                  <input id="scenic-range" type="range" min="0" max="100" value="72" step="1" />
+                  <span class="range-caption range-caption-right">风景</span>
+                </div>
+                <div class="quick-values" role="group" aria-label="风景偏好预设">
+                  <button type="button" class="quick-value" data-scenic="35">顺路</button>
+                  <button type="button" class="quick-value" data-scenic="65">均衡</button>
+                  <button type="button" class="quick-value is-active" data-scenic="85">风景</button>
+                </div>
+              </div>
+
+              <div class="constraint-row">
+                <label class="compact-field">
+                  <span class="field-label">最多绕行</span>
+                  <span class="number-input-wrap"><input id="detour-input" type="number" min="0" max="60" value="30" step="1" /><span>%</span></span>
+                </label>
+                <label class="switch-field">
+                  <input id="bike-friendly" type="checkbox" checked />
+                  <span class="switch" aria-hidden="true"></span>
+                  <span><strong>偏好骑行道路</strong><small>避开高速与封闭路段</small></span>
+                </label>
+                <label class="switch-field">
+                  <input id="online-routing" type="checkbox" checked />
+                  <span class="switch" aria-hidden="true"></span>
+                  <span><strong>在线道路校路</strong><small>OSRM cycling · 失败保留离线轨迹</small></span>
+                </label>
+              </div>
+
+              <button class="primary-button" type="submit">
+                <span>生成风景路线</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13"/><path d="m13 6 6 6-6 6"/></svg>
+              </button>
+              <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
+
+              <div class="gpx-import">
+                <div class="gpx-import-copy">
+                  <strong>已有路线？</strong>
+                  <span>导入 GPX 1.1，在同一张地图中预览并重新导出。</span>
+                </div>
+                <button id="import-button" class="import-button" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 4h14"/></svg>
+                  <span id="import-button-label">导入 GPX</span>
+                </button>
+                <input id="gpx-file-input" class="visually-hidden" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" aria-describedby="import-status" />
+              </div>
+              <p id="import-status" class="import-status" role="status" aria-live="polite"></p>
+            </form>
+          </section>
+        </section>
+
+        <section class="workspace-grid" aria-label="路线预览与摘要">
+          <div class="map-card">
+            <div class="map-card-header">
+              <div>
+                <p class="panel-index">02 / ROUTE PREVIEW</p>
+                <h2 id="route-title">杭州西湖 → 千岛湖</h2>
+              </div>
+              <div class="map-badges">
+                <span class="map-badge"><span class="badge-dot route-badge-dot"></span><span id="route-kind">风景均衡</span></span>
+                <span class="map-badge muted" id="route-point-count">— 个轨迹点</span>
+                <span class="map-badge muted source-badge" id="route-source">离线示意</span>
+              </div>
+            </div>
+            <div class="map-stage" id="map-stage">
+              <svg id="route-map" viewBox="0 0 900 560" role="img" aria-labelledby="map-title map-description" preserveAspectRatio="xMidYMid meet">
+                <title id="map-title">路线预览地图</title>
+                <desc id="map-description">显示起点、终点和沿途风景航点的示意路线。</desc>
+                <defs>
+                  <pattern id="map-grid" width="42" height="42" patternUnits="userSpaceOnUse">
+                    <path d="M42 0H0V42" fill="none" stroke="#d8d1c4" stroke-width="1" opacity=".48" />
+                  </pattern>
+                  <filter id="route-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#315a4a" flood-opacity=".2" />
+                  </filter>
+                </defs>
+                <rect width="900" height="560" fill="#ede9df" />
+                <rect width="900" height="560" fill="url(#map-grid)" />
+                <g id="map-backdrop" aria-hidden="true"></g>
+                <g id="map-roads" aria-hidden="true"></g>
+                <g id="map-route" filter="url(#route-shadow)"></g>
+                <g id="map-points"></g>
+                <g id="map-labels"></g>
+              </svg>
+              <div class="map-scale" aria-hidden="true"><span></span><small>20 km</small></div>
+              <div class="map-note" id="map-note"><span class="map-note-dot"></span><span id="map-note-text">示意路线 · 轨迹可导入 IGP</span></div>
+            </div>
+            <div class="map-legend" aria-label="地图图例">
+              <span><i class="legend-line"></i>推荐轨迹</span>
+              <span><i class="legend-dot start"></i>出发地</span>
+              <span><i class="legend-dot end"></i>目的地</span>
+              <span><i class="legend-pin"></i>风景航点</span>
+            </div>
+          </div>
+
+          <aside class="route-summary" aria-labelledby="summary-title">
+            <div class="summary-topline">
+              <div>
+                <p class="panel-index">ROUTE NOTE</p>
+                <h2 id="summary-title">这一趟会经过</h2>
+              </div>
+              <span class="route-score" id="route-score">—</span>
+            </div>
+            <div class="metric-grid">
+              <div class="metric"><span>预计距离</span><strong id="distance-value">—</strong><small>公里</small></div>
+              <div class="metric"><span>累计爬升</span><strong id="elevation-value">—</strong><small>米</small></div>
+              <div class="metric"><span>风景航点</span><strong id="stops-value">—</strong><small>个</small></div>
+            </div>
+            <div class="route-submetrics" aria-label="路线距离对比">
+              <span>直线基准 <strong id="direct-distance-value">—</strong> km</span>
+              <span>实际绕行 <strong id="detour-value">—</strong></span>
+            </div>
+            <div class="stops-heading"><span>沿途停留建议</span><span id="stops-caption">自动挑选</span></div>
+            <ol id="stops-list" class="stops-list"></ol>
+            <div class="summary-footer">
+              <p id="export-note"><span class="check-icon" aria-hidden="true">✓</span><span id="export-note-text">包含完整道路轨迹与航点，可直接导入 IGP</span></p>
+              <button id="export-button" class="export-button" type="button" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+                <span>导出 GPX</span>
+              </button>
+            </div>
+            <p id="export-status" class="export-status" role="status" aria-live="polite"></p>
+          </aside>
+        </section>
+
+        <section class="lower-grid" aria-label="路线详情">
+          <div class="elevation-card">
+            <div class="card-heading">
+              <div><p class="panel-index">03 / PROFILE</p><h2>爬升预览</h2></div>
+              <span class="profile-caption">相对海拔 · 示意</span>
+            </div>
+            <div class="profile-chart-wrap">
+              <svg id="profile-chart" viewBox="0 0 900 210" role="img" aria-label="路线海拔变化示意图" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="profile-fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0" stop-color="#cf7b47" stop-opacity=".34" />
+                    <stop offset="1" stop-color="#cf7b47" stop-opacity=".02" />
+                  </linearGradient>
+                </defs>
+                <g id="profile-grid"></g>
+                <path id="profile-area" fill="url(#profile-fill)" d="" />
+                <path id="profile-line" fill="none" stroke="#c86e3f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="" />
+                <g id="profile-markers"></g>
+              </svg>
+            </div>
+            <div class="profile-axis"><span>出发</span><span id="profile-mid">—</span><span>抵达</span></div>
+          </div>
+
+          <div class="interop-card">
+            <div class="card-heading">
+              <div><p class="panel-index">04 / IGP READY</p><h2>导入说明</h2></div>
+              <span class="ready-badge"><span>✓</span>已准备</span>
+            </div>
+            <div class="interop-list">
+              <div class="interop-item"><span class="interop-number">01</span><span><strong>下载 GPX 文件</strong><small>文件内含轨迹、路线点和风景航点。</small></span></div>
+              <div class="interop-item"><span class="interop-number">02</span><span><strong>打开 IGP · 导入路线</strong><small>选择刚下载的 `.gpx` 文件即可预览。</small></span></div>
+              <div class="interop-item"><span class="interop-number">03</span><span><strong>出发前检查路况</strong><small>本地演示路线需要再确认施工和禁行信息。</small></span></div>
+            </div>
+            <div class="interop-footnote"><span class="info-icon">i</span><span>标准 GPX 1.1 · UTF-8 · WGS84 坐标</span></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer"><span>景线 / IGP Scenic Route Lab</span><span>把到达，变成值得记住的一段路。</span></footer>
+    </div>
+    <script src="app.js" defer></script>
+  </body>
+</html>
