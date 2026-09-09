@@ -173,9 +173,9 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
 .map-stage.tile-fallback .street-map { position: absolute; inset: 0; z-index: 1; display: block; min-height: 0; background: transparent; pointer-events: none; }
 .map-stage.tile-fallback #route-map { position: absolute; inset: 0; z-index: 2; display: block; min-height: 0; pointer-events: auto; }
 .map-stage.tile-fallback .map-scale, .map-stage.tile-fallback .map-note { z-index: 3; }
-.map-scale { position: absolute; left: 23px; bottom: 25px; display: grid; gap: 4px; color: var(--ink-soft); font-size: 10px; }
+.map-scale { position: absolute; left: 23px; bottom: 25px; z-index: 1000; display: grid; gap: 4px; color: var(--ink-soft); font-size: 10px; pointer-events: none; }
 .map-scale span { display: block; width: 65px; height: 5px; border-right: 1px solid currentColor; border-left: 1px solid currentColor; background: linear-gradient(currentColor, currentColor) center / 100% 1px no-repeat; }
-.map-note { position: absolute; right: 18px; bottom: 18px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; color: var(--ink-soft); background: rgba(251, 250, 247, .82); border: 1px solid rgba(216, 209, 196, .86); font-size: 10px; backdrop-filter: blur(4px); }
+.map-note { position: absolute; right: 18px; bottom: 18px; z-index: 1000; display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; color: var(--ink-soft); background: rgba(251, 250, 247, .82); border: 1px solid rgba(216, 209, 196, .86); font-size: 10px; backdrop-filter: blur(4px); pointer-events: none; }
 .map-note-dot { width: 6px; height: 6px; background: var(--orange); border-radius: 50%; }
 .map-note:has(#map-note-text) .map-note-dot { transition: background .2s; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 15px; padding: 15px 27px 18px; color: var(--ink-faint); font-size: 10px; }

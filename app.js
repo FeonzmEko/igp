@@ -1058,7 +1058,9 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
   }
 
   function initStreetMap() {
-    streetMapAdapter = createStreetMap({ element: refs.streetMap, mapStage: refs.mapStage, onMapClick: ({ event }) => addWaypointFromMap(event) });
+    // createStreetMap converts the GCJ-02 Leaflet click back to WGS-84 before
+    // invoking this callback, so waypoints remain compatible with OSRM/GPX.
+    streetMapAdapter = createStreetMap({ element: refs.streetMap, mapStage: refs.mapStage, onMapClick: (payload) => addWaypointFromMap(payload) });
   }
 
   function renderStreetMap(route) {
@@ -1550,9 +1552,11 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
 
   function addWaypointFromMap(event) {
     if (!mapAddMode || !currentRoute) return;
-    if (event.target.closest?.(".scenic-marker-group")) return;
+    if (event.target?.closest?.(".scenic-marker-group")) return;
     let point;
-    if (event.latlng && Number.isFinite(event.latlng.lat) && Number.isFinite(event.latlng.lng)) {
+    if (Number.isFinite(event?.lat) && Number.isFinite(event?.lon)) {
+      point = { lat: event.lat, lon: event.lon };
+    } else if (event.latlng && Number.isFinite(event.latlng.lat) && Number.isFinite(event.latlng.lng)) {
       point = { lat: event.latlng.lat, lon: event.latlng.lng };
     } else {
       const rect = refs.routeMap.getBoundingClientRect();

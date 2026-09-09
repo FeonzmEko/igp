@@ -60,6 +60,10 @@ async function mockServices(page, { slowRouting = false } = {}) {
       });
       return;
     }
+    if (url.hostname.includes("autonavi.com")) {
+      await route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+b0mUAAAAASUVORK5CYII=", "base64") });
+      return;
+    }
     if (url.hostname.includes("tile.openstreetmap.org")) {
       await route.abort();
       return;
@@ -152,4 +156,3 @@ test.describe("responsive route planner", () => {
     await context.close();
   });
 });
-
