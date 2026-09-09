@@ -46,26 +46,52 @@ test("manual waypoints remain in their original order", async () => {
 });
 
 test("manual waypoints survive an over-budget route with a warning", async () => {
-  __setRequestOsrmForTests(async (locations) => ({ ...baseline, distance: locations.length > 2 ? 20000 : 10000 }));
+  __setRequestOsrmForTests(async (locations) => ({ ...baseline, distance: locations.length > 2 ? 20000 : 10000, geometry: { coordinates: locations.map((point) => [point.lon, point.lat]) } }));
   const route = await fetchOnlineRoute({ start, end, detour: 0, bikeFriendly: false, stops: [
     { name: "manual", lat: 0, lon: 0.04, source: "用户添加", type: "用户途经点" },
   ] }, new AbortController().signal);
   assert.deepEqual(route.stops.map((stop) => stop.name), ["manual"]);
+  assert.equal(route.distanceKm, 20);
+  assert.deepEqual(route.points.map(({ lat, lon }) => [lat, lon]), [[0, 0], [0, 0.04], [0, 0.1]]);
   assert.match(route.routingWarning, /手动途经点/);
 });
 
-test("no-route errors do not delete manual waypoints", async () => {
+test("unreachable manual waypoints cannot silently export a route bypassing them", async () => {
   let call = 0;
   __setRequestOsrmForTests(async () => {
     call += 1;
     if (call === 1) return baseline;
     throw Object.assign(new Error("NoRoute"), { code: "NoRoute" });
   });
-  const route = await fetchOnlineRoute({ start, end, detour: 0, bikeFriendly: false, stops: [
+  await assert.rejects(fetchOnlineRoute({ start, end, detour: 0, bikeFriendly: false, stops: [
     { name: "manual", lat: 0, lon: 0.04, source: "用户添加", type: "用户途经点" },
-  ] }, new AbortController().signal);
-  assert.equal(route.stops.length, 1);
-  assert.match(route.routingWarning, /手动途经点/);
+  ] }, new AbortController().signal), /指定途经点无法接入骑行道路/);
+});
+
+test("an empty discovery pool preserves selected curated stops in online requests", async () => {
+  const calls = [];
+  __setRequestOsrmForTests(async (locations) => {
+    calls.push(locations);
+    return { ...baseline, geometry: { coordinates: locations.map((point) => [point.lon, point.lat]) } };
+  });
+  const route = await fetchOnlineRoute({ start, end, detour: 30, candidateStops: [], stops: [
+    { name: "已选真实景点", lat: 0, lon: 0.04, source: "公开骑行内容线索" },
+  ] });
+  assert.deepEqual(route.stops.map((stop) => stop.name), ["已选真实景点"]);
+  assert.equal(calls[1][1].name, "已选真实景点");
+});
+
+test("large discovery results route only the best few automatic candidates", async () => {
+  const counts = [];
+  __setRequestOsrmForTests(async (locations) => {
+    counts.push(locations.length);
+    return baseline;
+  });
+  const route = await fetchOnlineRoute({ start, end, scenic: 72, detour: 30, candidateStops: Array.from({ length: 150 }, (_, index) => (
+    { name: `景点 ${index}`, lat: 0, lon: index / 1600, scenicValue: index }
+  )) });
+  assert.equal(route.stops.length, 3);
+  assert.deepEqual(counts, [2, 5]);
 });
 
 test("cancellation propagates from planner to OSRM requester", async () => {

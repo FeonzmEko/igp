@@ -1,21 +1,246 @@
 import { fetchJson, getConfig } from "./http.js";
 
-const POSITIVE = ['[natural~"water|wood|forest|heath|scrub|beach|wetland|spring|cliff|peak"]', '[tourism~"viewpoint|attraction|picnic_site"]', '[leisure~"park|nature_reserve"]', '[boundary="protected_area"]', '[landuse="forest"]', '[waterway]'];
-const NEGATIVE = ['[landuse~"industrial|quarry"]', '[industrial]', '[highway~"motorway|trunk"]'];
-const SUPPLY = ['[amenity~"cafe|restaurant|fuel"]', '[shop~"convenience|supermarket"]'];
-const num = (v) => Number.isFinite(+v) ? +v : null;
-export function routeCoordinates(route) { if (Array.isArray(route)) return route.map((p) => Array.isArray(p) ? p : [p.lon ?? p.lng, p.lat]).filter((p) => num(p[0]) != null && num(p[1]) != null); const g = route?.geometry; if (g?.type === "LineString") return routeCoordinates(g.coordinates); if (Array.isArray(g)) return routeCoordinates(g); if (g?.geometry) return routeCoordinates(g); return (route?.points || []).map((p) => [p.lon ?? p.lng, p.lat]).filter((p) => num(p[0]) != null && num(p[1]) != null); }
-export function safeTags(tags) { const out = {}; for (const [k, v] of Object.entries(tags || {})) if (["string", "number", "boolean"].includes(typeof v)) out[String(k)] = v; return out; }
-function safeElement(e) { const tags = safeTags(e?.tags); let lat = num(e?.lat ?? e?.center?.lat), lon = num(e?.lon ?? e?.center?.lon); const out = { id: e?.id, type: e?.type, tags }; if (lat != null) out.lat = lat; if (lon != null) out.lon = lon; if (e?.geometry) out.geometry = e.geometry.slice(0, 5000); if (e?.nodes) out.nodes = e.nodes.slice(0, 2000); return out; }
-function hav(a, b) { const p = Math.PI / 180, x = (b[0] - a[0]) * p * 6371 * Math.cos((a[1] + b[1]) * p / 2), y = (b[1] - a[1]) * p * 6371; return Math.hypot(x, y); }
-function corridor(coords, max = 0.6) { const out = []; let total = 0; for (let i = 1; i < coords.length; i++) { const a = coords[i - 1], b = coords[i]; total += hav(a, b); if (total > 600) return []; const n = Math.max(1, Math.ceil(hav(a, b) / max)); for (let j = 0; j < n; j++) out.push([a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n]); } if (coords.length) out.push(coords.at(-1)); return out; }
-function chunks(a, n) { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
-function query(points, supplies = false) { const clauses = []; for (const [lon, lat] of points) for (const f of [...POSITIVE, ...NEGATIVE, ...(supplies ? SUPPLY : [])]) clauses.push(`nwr(around:500,${lat},${lon})${f}`); return `[out:json][timeout:25];(${clauses.join(";")};);out center geom tags;`; }
-function statusFor(error, signal) { if (signal?.aborted) throw error; return "unavailable"; }
-function normalize(payload, status = "ready") { const seen = new Set(), features = []; for (const e of payload?.elements || []) { const x = safeElement(e), key = `${x.type}:${x.id}`; if (x.id != null && !seen.has(key)) { seen.add(key); features.push(x); } } return { status, features, elements: features, data: features, counts: { total: features.length }, dataSource: "overpass" }; }
-function nearestMeters(coords, lat, lon) { let best = Infinity; const p = [lon, lat]; for (let i = 1; i < coords.length; i++) { const a = coords[i - 1], b = coords[i], dx = (b[0] - a[0]) * Math.cos(lat * Math.PI / 180), dy = b[1] - a[1], px = (p[0] - a[0]) * Math.cos(lat * Math.PI / 180), py = p[1] - a[1], den = dx * dx + dy * dy, t = den ? Math.max(0, Math.min(1, (px * dx + py * dy) / den)) : 0; best = Math.min(best, Math.hypot((px - t * dx) * 111320, (py - t * dy) * 111320)); } return best; }
-function sourceUrl(x) { return x.id == null ? "" : `https://www.openstreetmap.org/${x.type}/${x.id}`; }
+const SEARCH_RADIUS_METERS = 500;
+const SIMPLIFY_METERS = 10;
+const MAX_BATCH_POINTS = 128;
+const MAX_BATCH_KM = 60;
+const MAX_ROUTE_KM = 600;
+const POSITIVE = [
+  '[natural~"^(water|wood|forest|heath|scrub|beach|wetland|spring|cliff|peak)$"]',
+  '[tourism~"^(viewpoint|attraction|picnic_site)$"]',
+  '[leisure~"^(park|nature_reserve)$"]',
+  '[boundary="protected_area"]', '[landuse="forest"]', '[waterway]',
+];
+const NEGATIVE = ['[landuse~"^(industrial|quarry)$"]', '[industrial]', '[highway~"^(motorway|trunk)$"]'];
+const SUPPLY = ['[amenity~"^(cafe|restaurant|fuel)$"]', '[shop~"^(convenience|supermarket)$"]'];
+const DISCOVERY = [
+  '[tourism~"^(viewpoint|attraction|picnic_site)$"][~"^name(:zh)?$"~"."]',
+  '[leisure~"^(park|nature_reserve)$"][~"^name(:zh)?$"~"."]',
+];
 
-export async function discoverScenicStops(start, end, scenic = 50, signal) { const a = start?.lat != null ? [start.lon ?? start.lng, start.lat] : null, b = end?.lat != null ? [end.lon ?? end.lng, end.lat] : null; const coords = corridor([a, b].filter(Boolean)); if (coords.length < 2) return { status: "unavailable", stops: [], features: [] }; try { const payload = await fetchJson(getConfig().overpassBaseUrl, { method: "POST", body: `data=${encodeURIComponent(query(coords))}`, headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeoutMs: getConfig().overpassTimeoutMs, signal }); const status = payload?.remark ? "partial" : "ready", base = normalize(payload, status); const stops = base.features.filter((x) => x.lat != null && x.lon != null && !/^(motorway|trunk)$/.test(String(x.tags.highway || "")) && x.tags.landuse !== "industrial" && x.tags.industrial == null).map((x) => { const tags = x.tags || {}, value = tags.tourism === "viewpoint" ? 30 : tags.natural === "water" || tags.waterway ? 25 : tags.natural === "wood" || tags.natural === "forest" || tags.landuse === "forest" ? 20 : tags.leisure === "park" ? 15 : tags.leisure === "nature_reserve" || tags.boundary === "protected_area" ? 25 : Number(scenic) || 10; return { name: tags.name || tags["name:zh"] || "自然景观", type: tags.tourism || tags.natural || tags.leisure || "scenic", note: tags.description || "", sourceUrl: sourceUrl(x), scenicValue: value, tags, lat: x.lat, lon: x.lon, source: "overpass" }; }); return { ...base, stops }; } catch (e) { return { status: statusFor(e, signal), stops: [], features: [], error: String(e?.message || e) }; } }
-export async function queryRouteAmenities(route, signal) { const coords = corridor(routeCoordinates(route)); if (coords.length < 2 || coords.length > 12000) return { status: "unavailable", features: [], supplies: { status: "unavailable", items: [] } }; try { const config = getConfig(), elements = []; let partial = false; for (const batch of chunks(coords, 180)) { const payload = await fetchJson(config.overpassBaseUrl, { method: "POST", body: `data=${encodeURIComponent(query(batch, true))}`, headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeoutMs: config.overpassTimeoutMs, signal }); if (payload?.remark) partial = true; if (Array.isArray(payload?.elements)) elements.push(...payload.elements); } const base = normalize({ elements }, partial ? "partial" : "ready"), seen = new Set(), items = []; for (const x of base.features) { const t = x.tags || {}; if (!(t.amenity && /^(cafe|restaurant|fuel)$/.test(t.amenity)) && !(t.shop && /^(convenience|supermarket)$/.test(t.shop))) continue; const d = x.lat == null ? Infinity : nearestMeters(coords, x.lat, x.lon); if (d > 500) continue; const key = `${x.type}:${x.id}`; if (seen.has(key)) continue; seen.add(key); items.push({ type: t.amenity || t.shop, name: t.name || t["name:zh"] || "补给点", lat: x.lat, lon: x.lon, distance: Math.round(d), distanceMeters: Math.round(d), distanceKm: Number((d / 1000).toFixed(3)), sourceUrl: sourceUrl(x) }); } return { ...base, supplies: { status: base.status, items }, routePoints: coords.length }; } catch (e) { const status = statusFor(e, signal); return { status, features: [], supplies: { status, items: [] }, error: String(e?.message || e) }; } }
-export { safeElement };
+function num(value) {
+  if (value === null || value === undefined || typeof value === "boolean" || value === "") return null;
+  return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+function coordinate(point) {
+  const lon = num(Array.isArray(point) ? point[0] : point?.lon ?? point?.lng);
+  const lat = num(Array.isArray(point) ? point[1] : point?.lat);
+  return lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180 ? null : [lon, lat];
+}
+export function routeCoordinates(route) {
+  if (Array.isArray(route)) return route.map(coordinate).filter(Boolean);
+  const geometry = route?.geometry;
+  if (geometry?.type === "LineString") return routeCoordinates(geometry.coordinates);
+  if (Array.isArray(geometry)) return routeCoordinates(geometry);
+  if (geometry?.geometry) return routeCoordinates(geometry);
+  return routeCoordinates(route?.points || []);
+}
+export function safeTags(tags) {
+  const result = {};
+  for (const [key, value] of Object.entries(tags || {})) {
+    if (["string", "number", "boolean"].includes(typeof value)) result[String(key)] = value;
+  }
+  return result;
+}
+export function safeElement(element) {
+  const point = coordinate(element?.lat != null ? element : element?.center);
+  const result = { id: element?.id, type: element?.type, tags: safeTags(element?.tags) };
+  if (point) [result.lon, result.lat] = point;
+  if (Array.isArray(element?.geometry)) result.geometry = element.geometry.slice(0, 5000);
+  if (Array.isArray(element?.nodes)) result.nodes = element.nodes.slice(0, 2000);
+  return result;
+}
+function hav(a, b) {
+  const rad = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * rad;
+  const dLon = (b[0] - a[0]) * rad;
+  const value = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(Math.min(1, value)));
+}
+function segmentMeters(point, a, b) {
+  const scale = Math.cos(point[1] * Math.PI / 180);
+  const dx = (b[0] - a[0]) * scale;
+  const dy = b[1] - a[1];
+  const px = (point[0] - a[0]) * scale;
+  const py = point[1] - a[1];
+  const ratio = Math.max(0, Math.min(1, (px * dx + py * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(px - ratio * dx, py - ratio * dy) * 111320;
+}
+function nearestMeters(coords, lat, lon) {
+  const point = [lon, lat];
+  let distance = Infinity;
+  for (let i = 1; i < coords.length; i += 1) distance = Math.min(distance, segmentMeters(point, coords[i - 1], coords[i]));
+  return distance;
+}
+
+// Simplify the query only. Keep the original geometry for all final 500 m checks.
+// Expanding the candidate search by the simplification tolerance avoids gaps.
+function simplify(coords) {
+  if (coords.length < 3) return coords;
+  const keep = new Set([0, coords.length - 1]);
+  const ranges = [[0, coords.length - 1]];
+  while (ranges.length) {
+    const [first, last] = ranges.pop();
+    let furthest = -1;
+    let distance = SIMPLIFY_METERS;
+    for (let index = first + 1; index < last; index += 1) {
+      const offset = segmentMeters(coords[index], coords[first], coords[last]);
+      if (offset > distance) { distance = offset; furthest = index; }
+    }
+    if (furthest !== -1) {
+      keep.add(furthest);
+      ranges.push([first, furthest], [furthest, last]);
+    }
+  }
+  return [...keep].sort((a, b) => a - b).map((index) => coords[index]);
+}
+function routeBatches(coords) {
+  if (coords.length < 2) return [];
+  let total = 0;
+  for (let i = 1; i < coords.length; i += 1) total += hav(coords[i - 1], coords[i]);
+  if (total > MAX_ROUTE_KM) return [];
+  const compact = simplify(coords);
+  const batches = [];
+  let batch = [compact[0]];
+  let batchKm = 0;
+  for (let i = 1; i < compact.length; i += 1) {
+    const start = compact[i - 1];
+    const end = compact[i];
+    const count = Math.max(1, Math.ceil(hav(start, end) / MAX_BATCH_KM));
+    for (let step = 1; step <= count; step += 1) {
+      const point = step === count ? end : [start[0] + (end[0] - start[0]) * step / count, start[1] + (end[1] - start[1]) * step / count];
+      const previous = batch.at(-1);
+      const distance = hav(previous, point);
+      if (batch.length > 1 && (batch.length >= MAX_BATCH_POINTS || batchKm + distance > MAX_BATCH_KM)) {
+        batches.push(batch);
+        // Both batches include this vertex, preserving the connecting segment.
+        batch = [previous];
+        batchKm = 0;
+      }
+      batch.push(point);
+      batchKm += distance;
+    }
+  }
+  if (batch.length > 1) batches.push(batch);
+  return batches;
+}
+function query(points, discovery) {
+  const filters = discovery ? DISCOVERY : [...POSITIVE, ...NEGATIVE, ...SUPPLY];
+  const line = points.map(([lon, lat]) => `${lat.toFixed(6)},${lon.toFixed(6)}`).join(",");
+  const around = `(around:${SEARCH_RADIUS_METERS + SIMPLIFY_METERS},${line})`;
+  // Overpass accepts a polyline in one around filter. Repeating a query for
+  // every 600 m sample created thousands of overlapping search statements.
+  return `[out:json][timeout:25];(${filters.map((filter) => `nwr${around}${filter};`).join("")});out center geom tags;`;
+}
+function normalize(elements, status) {
+  const seen = new Set();
+  const features = [];
+  for (const element of elements) {
+    const item = safeElement(element);
+    const key = `${item.type}:${item.id}`;
+    if (item.id == null || seen.has(key)) continue;
+    seen.add(key);
+    features.push(item);
+  }
+  return { status, features, elements: features, data: features, counts: { total: features.length }, dataSource: "overpass" };
+}
+async function queryCorridor(coords, signal, discovery = false) {
+  const batches = routeBatches(coords);
+  if (!batches.length) return normalize([], "unavailable");
+  const config = getConfig();
+  const elements = [];
+  let successfulBatches = 0;
+  let partial = false;
+  let errorMessage;
+  for (const batch of batches) {
+    if (signal?.aborted) throw signal.reason || new DOMException("Aborted", "AbortError");
+    try {
+      const payload = await fetchJson(config.overpassBaseUrl, {
+        method: "POST",
+        body: new URLSearchParams({ data: query(batch, discovery) }).toString(),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        timeoutMs: config.overpassTimeoutMs,
+        signal,
+      });
+      if (!Array.isArray(payload?.elements)) throw new Error("Overpass 返回了无效的景点数据");
+      successfulBatches += 1;
+      if (payload.remark) partial = true;
+      elements.push(...payload.elements);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      partial = true;
+      errorMessage = String(error?.message || error);
+      // Keep earlier batches when the service fails partway through a route.
+      // A failed service should not incur another timeout for every remaining batch.
+      break;
+    }
+  }
+  const status = successfulBatches === 0 ? "unavailable" : partial ? "partial" : "ready";
+  return { ...normalize(elements, status), ...(errorMessage ? { error: errorMessage } : {}) };
+}
+function sourceUrl(item) {
+  return item.id == null ? "" : `https://www.openstreetmap.org/${item.type}/${item.id}`;
+}
+function scenicStop(feature, coords) {
+  const tags = feature.tags;
+  const name = String(tags["name:zh"] || tags.name || "").trim();
+  if (!name || feature.lat == null || feature.lon == null) return null;
+  if (tags.access === "private" || tags.access === "no" || tags.bicycle === "no") return null;
+  // Area centers describe the environment; a lake or river center is never a
+  // suitable cycling waypoint, even if the area also has a tourism tag.
+  if (tags.waterway || tags.water || /^(water|wetland|bay|strait)$/.test(String(tags.natural || ""))) return null;
+  if (tags.industrial != null || /^(industrial|quarry)$/.test(String(tags.landuse || ""))) return null;
+  const tourist = /^(viewpoint|attraction|picnic_site)$/.test(String(tags.tourism || ""));
+  const park = tags.leisure === "park";
+  const reserveNode = tags.leisure === "nature_reserve" && feature.type === "node";
+  if (!tourist && !park && !reserveNode) return null;
+  const distance = nearestMeters(coords, feature.lat, feature.lon);
+  if (distance > SEARCH_RADIUS_METERS) return null;
+  const scenicValue = tags.tourism === "viewpoint" ? 30 : reserveNode ? 25 : park ? 15 : 20;
+  return {
+    id: feature.id,
+    osmId: feature.id,
+    osmType: feature.type,
+    name,
+    type: tags.tourism || tags.leisure,
+    note: tags.description || "",
+    sourceUrl: sourceUrl(feature),
+    scenicValue,
+    tags,
+    lat: feature.lat,
+    lon: feature.lon,
+    distanceMeters: Math.round(distance),
+    source: "overpass",
+  };
+}
+
+export async function discoverScenicStops(start, end, scenic = 50, signal) {
+  const coords = routeCoordinates([start, end]);
+  const base = await queryCorridor(coords, signal, true);
+  const stops = base.features.map((feature) => scenicStop(feature, coords)).filter(Boolean)
+    .sort((a, b) => b.scenicValue / (b.distanceMeters + 250) - a.scenicValue / (a.distanceMeters + 250))
+    .slice(0, Number(scenic) >= 52 ? 24 : 12);
+  return { ...base, stops };
+}
+export async function queryRouteAmenities(route, signal) {
+  const coords = routeCoordinates(route);
+  const base = await queryCorridor(coords, signal);
+  const items = [];
+  for (const feature of base.features) {
+    const tags = feature.tags;
+    if (!/^(cafe|restaurant|fuel)$/.test(String(tags.amenity || "")) && !/^(convenience|supermarket)$/.test(String(tags.shop || ""))) continue;
+    if (feature.lat == null || feature.lon == null) continue;
+    const distance = nearestMeters(coords, feature.lat, feature.lon);
+    if (distance > SEARCH_RADIUS_METERS) continue;
+    items.push({
+      id: feature.id, osmId: feature.id, osmType: feature.type,
+      type: tags.amenity || tags.shop,
+      name: tags["name:zh"] || tags.name || "补给点",
+      lat: feature.lat, lon: feature.lon,
+      distance: Math.round(distance), distanceMeters: Math.round(distance),
+      distanceKm: Number((distance / 1000).toFixed(3)),
+      sourceUrl: sourceUrl(feature),
+    });
+  }
+  return { ...base, supplies: { status: base.status, items }, routePoints: coords.length };
+}

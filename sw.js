@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "jingxian-shell-";
-const CACHE_NAME = `${CACHE_PREFIX}v3`;
+const CACHE_NAME = `${CACHE_PREFIX}v4`;
 const APP_SHELL = [
   "/index.html",
   "/styles.css",

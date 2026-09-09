@@ -169,6 +169,18 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
 .leaflet-container { color: var(--ink); font: inherit; }
 .leaflet-control-attribution { font-size: 9px; }
 .leaflet-popup-content { margin: 10px 12px; font-size: 11px; line-height: 1.45; }
+.leaflet-tooltip.route-point-tooltip { padding: 0; border: 0; border-radius: 5px; background: transparent; box-shadow: none; white-space: normal; }
+.leaflet-tooltip.route-point-tooltip::before { display: none; }
+.leaflet-tooltip.route-point-tooltip::after { position: absolute; z-index: -1; top: 50%; left: 50%; width: var(--route-label-line-length, 0px); height: 1px; background: rgba(77, 69, 57, .55); content: ""; transform: rotate(var(--route-label-line-angle, 0rad)); transform-origin: left center; pointer-events: none; }
+.route-point-label { display: inline-flex; align-items: center; gap: 5px; max-width: 168px; min-height: 29px; padding: 3px 7px 3px 4px; color: #24352d; background: rgba(255, 255, 255, .97); border: 1px solid #bdb7aa; border-radius: 5px; box-shadow: 0 2px 5px rgba(30, 42, 37, .2); font-size: 12px; font-weight: 700; line-height: 20px; text-align: left; }
+.route-point-label:hover, .route-point-label:focus-visible { border-color: var(--forest); background: #fff; outline: 2px solid rgba(49, 90, 74, .28); outline-offset: 1px; }
+.route-point-label-number { flex: 0 0 auto; min-width: 21px; height: 21px; padding: 0 3px; color: #fff; background: #a64c24; border-radius: 4px; font-size: 11px; line-height: 21px; text-align: center; font-variant-numeric: tabular-nums; }
+.route-point-label--start .route-point-label-number { background: var(--forest); }
+.route-point-label--end .route-point-label-number { background: #704336; }
+.route-point-label-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) {
+  .route-point-label { max-width: 120px; min-height: 28px; gap: 4px; font-size: 11px; }
+}
 /* Keep the SVG route visible when the tile provider fails. The Leaflet
    container remains mounted underneath so a later tile load can recover. */
 .map-stage.tile-fallback .street-map { position: absolute; inset: 0; z-index: 1; display: block; min-height: 0; background: transparent; pointer-events: none; }

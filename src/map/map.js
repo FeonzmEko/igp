@@ -88,9 +88,19 @@ function createPopupNode(stop) {
   return node;
 }
 
-function createLabelNode(label) {
-  const node = document.createElement("span");
-  node.textContent = safeText(label);
+function createLabelNode(label, badge, kind) {
+  const node = document.createElement("button");
+  node.type = "button";
+  node.className = `route-point-label route-point-label--${kind}`;
+  node.title = safeText(label);
+  node.setAttribute("aria-label", `${badge} · ${safeText(label)}，查看详情`);
+  const number = document.createElement("span");
+  number.className = "route-point-label-number";
+  number.textContent = safeText(badge);
+  const name = document.createElement("span");
+  name.className = "route-point-label-name";
+  name.textContent = safeText(label);
+  node.append(number, name);
   return node;
 }
 
@@ -101,12 +111,13 @@ function samplePoints(points, maxSamples = 2000) {
 }
 
 /** Create the optional Leaflet layer; the SVG map remains the fallback owned by app.js. */
-export function createStreetMap({ element, mapStage, onMapClick, onTileError } = {}) {
+export function createStreetMap({ element, mapStage, onMapClick, onStopClick, onTileError } = {}) {
   const leaflet = globalThis.L;
   if (!element || !leaflet) {
     return {
       render() {},
       panTo() {},
+      highlightStop() {},
       destroy() {},
       available: false,
     };
@@ -119,6 +130,8 @@ export function createStreetMap({ element, mapStage, onMapClick, onTileError } =
   let sourceIndex = 0;
   const routeLayer = leaflet.layerGroup().addTo(map);
   const stopLayer = leaflet.layerGroup().addTo(map);
+  let routeLabels = [];
+  const stopMarkers = new Map();
   const fromDisplay = (point) => TILE_SOURCES[sourceIndex].id === "amap" ? gcj02ToWgs84(point) : coordinateOf(point);
   const toDisplay = (point) => {
     const coordinate = TILE_SOURCES[sourceIndex].id === "amap" ? wgs84ToGcj02(point) : coordinateOf(point);
@@ -235,10 +248,59 @@ export function createStreetMap({ element, mapStage, onMapClick, onTileError } =
   globalThis.setTimeout(invalidate, 120);
   globalThis.setTimeout(invalidate, 500);
 
+  function arrangeLabels() {
+    if (destroyed || !routeLabels.length) return;
+    const size = map.getSize();
+    const occupied = [{ x: 8, y: 8, width: 40, height: 72 }]; // Zoom controls.
+    const overlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    routeLabels.forEach(({ marker, tooltip }, index) => {
+      const node = tooltip.getElement();
+      if (!node) return;
+      const point = map.latLngToContainerPoint(marker.getLatLng());
+      if (point.x < 0 || point.x > size.x || point.y < 0 || point.y > size.y) return;
+      const width = node.offsetWidth, height = node.offsetHeight;
+      let best = null;
+      // Prefer labels next to their point; try further rows only when nearby
+      // points share the same space. Every primary waypoint keeps its name.
+      for (const row of [0, 1, 2]) for (const side of (index % 2 ? [1, -1] : [-1, 1])) for (const shift of [0, -width / 2, width / 2]) {
+        const x = Math.max(7, Math.min(size.x - width - 7, point.x - width / 2 + shift));
+        const y = Math.max(7, Math.min(size.y - height - 32, point.y + side * (14 + height / 2 + row * (height + 5)) - height / 2));
+        const candidate = { x, y, width: width + 5, height: height + 5 };
+        const penalty = occupied.reduce((sum, previous) => sum + overlap(candidate, previous), 0) * 100 + Math.abs(shift) + row * 40;
+        if (!best || penalty < best.penalty) best = { ...candidate, penalty };
+      }
+      occupied.push(best);
+      const offset = leaflet.point(best.x + width / 2 - point.x, best.y + height / 2 - point.y);
+      tooltip.options.offset = offset;
+      node.style.setProperty("--route-label-line-length", `${Math.hypot(offset.x, offset.y)}px`);
+      node.style.setProperty("--route-label-line-angle", `${Math.atan2(-offset.y, -offset.x)}rad`);
+      tooltip.update();
+    });
+  }
+  map.on("zoomend moveend resize", arrangeLabels);
+
+  function labelMarker(marker, name, badge, kind, details = {}) {
+    const node = createLabelNode(name, badge, kind);
+    marker.options.bubblingMouseEvents = false;
+    marker.bindPopup(createPopupNode({ ...details, name }));
+    marker.bindTooltip(node, { permanent: true, interactive: true, direction: "center", opacity: 1, className: "route-point-tooltip" });
+    leaflet.DomEvent.disableClickPropagation(node);
+    const selectStop = () => {
+      marker.openPopup();
+      if (kind === "stop" && typeof onStopClick === "function") onStopClick(details.id);
+    };
+    node.addEventListener("click", selectStop);
+    marker.on("click", () => {
+      if (kind === "stop" && typeof onStopClick === "function") onStopClick(details.id);
+    });
+    marker.addTo(stopLayer);
+    routeLabels.push({ marker, tooltip: marker.getTooltip() });
+    return marker;
+  }
+
   function render(route = {}, { fit = true } = {}) {
     currentRoute = route;
-    routeLayer.clearLayers();
-    stopLayer.clearLayers();
+    clearRouteLayers();
     const points = samplePoints(route.points);
     const latLngs = points.map(toDisplay).filter(Boolean);
     if (!latLngs.length) return;
@@ -254,26 +316,47 @@ export function createStreetMap({ element, mapStage, onMapClick, onTileError } =
 
     const start = toDisplay(route.start || points[0]);
     const end = toDisplay(route.end || points[points.length - 1]);
-    if (start) leaflet.circleMarker(start, { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#315a4a", fillOpacity: 1 }).bindTooltip(createLabelNode(route.start?.label || "出发地"), { direction: "top", offset: [0, -8] }).addTo(stopLayer);
-    if (end) leaflet.circleMarker(end, { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#c86e3f", fillOpacity: 1 }).bindTooltip(createLabelNode(route.end?.label || "目的地"), { direction: "top", offset: [0, -8] }).addTo(stopLayer);
-    (Array.isArray(route.stops) ? route.stops : []).forEach((stop) => {
+    if (start) labelMarker(leaflet.circleMarker(start, { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#315a4a", fillOpacity: 1 }), route.start?.label || "出发地", "起", "start", { type: "路线起点" });
+    if (end) labelMarker(leaflet.circleMarker(end, { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#c86e3f", fillOpacity: 1 }), route.end?.label || "目的地", "终", "end", { type: "路线终点" });
+    (Array.isArray(route.stops) ? route.stops : []).forEach((stop, index) => {
       const point = toDisplay(stop);
       if (!point) return;
-      leaflet.circleMarker(point, { radius: 6, color: "#fbfaf7", weight: 2, fillColor: "#c86e3f", fillOpacity: 1 })
-        .bindPopup(createPopupNode(stop))
-        .addTo(stopLayer);
+      const badge = Number.isFinite(Number(stop.id)) ? String(stop.id).padStart(2, "0") : String(index + 1).padStart(2, "0");
+      const stopId = stop.id ?? index + 1;
+      const marker = labelMarker(leaflet.circleMarker(point, { radius: 7, color: "#fbfaf7", weight: 2, fillColor: "#c86e3f", fillOpacity: 1 }), stop.name || "途经点", badge, "stop", { ...stop, id: stopId });
+      stopMarkers.set(String(stopId), marker);
     });
     const supplyTypes = { cafe: "咖啡店", restaurant: "餐厅", fuel: "加油站", convenience: "便利店", supermarket: "超市", shop: "商店" };
     (Array.isArray(route.supplies?.items) ? route.supplies.items : []).forEach((supply) => {
       const point = toDisplay(supply);
       if (!point) return;
-      leaflet.circleMarker(point, { radius: 5, color: "#fbfaf7", weight: 2, fillColor: "#287db0", fillOpacity: 1 })
+      leaflet.circleMarker(point, { radius: 5, color: "#fbfaf7", weight: 2, fillColor: "#287db0", fillOpacity: 1, bubblingMouseEvents: false })
         .bindPopup(createPopupNode({ ...supply, name: supply.name || "补给点", type: supplyTypes[supply.type] || "补给点", note: Number.isFinite(supply.distance) ? `距路线 ${Math.round(supply.distance)} 米` : "" }))
         .addTo(stopLayer);
     });
     const bounds = leaflet.latLngBounds(latLngs);
+    routeLabels.forEach(({ marker }) => bounds.extend(marker.getLatLng()));
     if (fit && bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13, animate: false });
+    arrangeLabels();
     globalThis.setTimeout(invalidate, 0);
+  }
+
+  function clearRouteLayers() {
+    // Leaflet keeps a closing tooltip/popup in the DOM for its 200 ms fade.
+    // A route replacement is immediate, so retire those old overlay nodes
+    // synchronously before opening the next set of permanent labels.
+    stopLayer.eachLayer((marker) => {
+      const tooltipElement = marker.getTooltip?.()?.getElement();
+      const popupElement = marker.getPopup?.()?.getElement();
+      marker.unbindTooltip?.();
+      marker.unbindPopup?.();
+      tooltipElement?.remove();
+      popupElement?.remove();
+    });
+    routeLayer.clearLayers();
+    stopLayer.clearLayers();
+    routeLabels = [];
+    stopMarkers.clear();
   }
 
   function panTo(point) {
@@ -281,16 +364,24 @@ export function createStreetMap({ element, mapStage, onMapClick, onTileError } =
     if (latLng) map.panTo(latLng);
   }
 
+  function highlightStop(id) {
+    const marker = stopMarkers.get(String(id));
+    if (!marker) return false;
+    map.panInside(marker.getLatLng(), { padding: [60, 60], animate: false });
+    marker.openPopup();
+    return true;
+  }
+
   function destroy() {
     destroyed = true;
     map.off("click", clickHandler);
+    map.off("zoomend moveend resize", arrangeLabels);
     clearSourceTimer();
     tileLayer.off();
-    routeLayer.clearLayers();
-    stopLayer.clearLayers();
+    clearRouteLayers();
     map.remove();
     mapStage?.classList.remove("has-street-map", "tile-fallback");
   }
 
-  return { render, panTo, destroy, available: true, map };
+  return { render, panTo, highlightStop, destroy, available: true, map };
 }

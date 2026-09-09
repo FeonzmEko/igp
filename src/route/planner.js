@@ -110,9 +110,15 @@ export async function fetchOnlineRoute(route, signal) {
   const baseline = await requestRoute([route.start, route.end]);
   const baselineDistanceKm = Number(baseline.distance) / 1000;
   const maxDistanceKm = baselineDistanceKm * (1 + Number(route.detour || 0) / 100);
-  const sourceStops = route.candidateStops || route.stops || [];
+  // An empty discovery pool must not discard stops already selected by the
+  // caller (for example, the curated Shanghai and Hangzhou routes).
+  const sourceStops = route.candidateStops?.length ? route.candidateStops : route.stops || [];
   const rankedStops = rankWaypoints(sourceStops, baseline, { start: route.start, end: route.end });
-  let candidateStops = orderStopsForRoute(rankedStops);
+  const maxAutomaticStops = Number.isFinite(route.scenic) ? (route.scenic >= 78 ? 4 : route.scenic >= 52 ? 3 : 2) : rankedStops.length;
+  let candidateStops = orderStopsForRoute([
+    ...rankedStops.filter(isManualWaypoint),
+    ...rankedStops.filter((stop) => !isManualWaypoint(stop)).slice(0, maxAutomaticStops),
+  ]);
   let selectedPayload = null; let selectedStops = candidateStops; let droppedStops = 0;
   const warnings = [];
   if (!candidateStops.length) {
@@ -123,31 +129,26 @@ export async function fetchOnlineRoute(route, signal) {
     try {
       const payload = await requestRoute([route.start, ...candidateStops, route.end]);
       const distanceKm = Number(payload.distance) / 1000;
-      if (distanceKm <= maxDistanceKm || candidateStops.length === 0) { selectedPayload = payload; selectedStops = candidateStops; break; }
+      if (distanceKm <= maxDistanceKm || !candidateStops.some((stop) => !isManualWaypoint(stop))) {
+        selectedPayload = payload;
+        selectedStops = candidateStops;
+        if (distanceKm > maxDistanceKm && candidateStops.length) warnings.push("手动途经点超过绕行预算，已保留实际经过这些点的道路轨迹。");
+        break;
+      }
     } catch (error) {
       if (!isNoRouteError(error)) throw error;
       const automatic = candidateStops.filter((stop) => !isManualWaypoint(stop));
       if (!automatic.length) {
-        selectedPayload = baseline;
-        selectedStops = candidateStops;
-        warnings.push("手动途经点无法全部接入道路轨迹，已保留为路线提示点。");
-        break;
+        throw new Error("指定途经点无法接入骑行道路，请调整途经点后重试。");
       }
     }
     const automatic = candidateStops.filter((stop) => stop.source !== "用户添加" && stop.type !== "用户途经点");
-    if (!automatic.length) {
-      selectedPayload = baseline;
-      selectedStops = candidateStops;
-      warnings.push("手动途经点超过绕行预算，已保留并提示现场核对。");
-      break;
-    }
     const worst = automatic.slice().sort((a, b) => (a.utilityScore || 0) - (b.utilityScore || 0))[0];
     candidateStops = orderStopsForRoute(rankWaypoints(candidateStops.filter((stop) => stop !== worst), baseline, { start: route.start, end: route.end }));
     droppedStops += 1;
   }
   const coordinates = selectedPayload.geometry.coordinates;
   const points = coordinates.map(([lon, lat]) => ({ lat: Number(lat), lon: Number(lon), ele: null, hasElevation: false, elevationSource: "无高程数据" }));
-  const routeDistance = (endIndex = points.length - 1) => points.slice(1, endIndex + 1).reduce((sum, point, index) => sum + haversineKm(points[index], point), 0);
   const stops = selectedStops.map((stop, stopIndex) => { const located = projection(stop, points); const index = Math.min(located.index + (located.ratio >= 0.5 ? 1 : 0), points.length - 1); return { ...stop, id: stopIndex + 1, index, lat: Number(stop.lat), lon: Number(stop.lon), ele: null, hasElevation: false, km: located.alongKm }; });
   if (droppedStops) warnings.push(`已按最多绕行 ${route.detour}% 调整，移除 ${droppedStops} 个低性价比景点。`);
   if (exclusionFallback) warnings.push("当前骑行路由服务不支持道路排除参数，请出发前核对道路类型。");

@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../sw.js", import.meta.url), "utf8");
 const headers = await readFile(new URL("../_headers", import.meta.url), "utf8");
 const origin = "https://jingxian.example";
-const currentCache = "jingxian-shell-v3";
+const currentCache = "jingxian-shell-v4";
 const keyOf = (request) => new URL(typeof request === "string" ? request : request.url, origin).href;
 const html = (body) => new Response(body, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 const javascript = (body) => new Response(body, { headers: { "Content-Type": "application/javascript" } });

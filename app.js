@@ -106,13 +106,13 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
       sourceUrl: "https://www.baidu.com/s?wd=%E4%B9%8D%E6%B5%A6%E4%B9%9D%E9%BE%99%E5%B1%B1%20%E9%AA%91%E8%A1%8C",
     },
     {
-      name: "南北湖",
+      name: "南北湖东大门",
       type: "湖畔风景",
-      note: "海盐境内的湖山组合，适合收尾前绕行与休息",
-      lat: 30.5746,
-      lon: 120.8255,
-      source: "小红书 / 抖音公开攻略线索",
-      sourceUrl: "https://www.baidu.com/s?wd=%E6%B5%B7%E7%9B%90%E5%8D%97%E5%8C%97%E6%B9%96%20%E9%AA%91%E8%A1%8C",
+      note: "南北湖东大门附近，出发前确认景区骑行通行条件",
+      lat: 30.3865543,
+      lon: 120.8618853,
+      source: "OpenStreetMap 入口位置",
+      sourceUrl: "https://www.openstreetmap.org/node/6441974085",
     },
   ];
 
@@ -303,8 +303,8 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
       if (!stored || typeof stored !== "object") return;
       if (typeof stored.start === "string" && stored.start.trim()) refs.start.value = stored.start;
       if (typeof stored.end === "string" && stored.end.trim()) refs.end.value = stored.end;
-      if (stored.scenic !== undefined) refs.scenic.value = String(clamp(Number(stored.scenic) || 72, 0, 100));
-      if (stored.detour !== undefined) refs.detour.value = String(clamp(Number(stored.detour) || 30, 0, 60));
+      if (stored.scenic !== undefined && Number.isFinite(Number(stored.scenic))) refs.scenic.value = String(clamp(Number(stored.scenic), 0, 100));
+      if (stored.detour !== undefined && Number.isFinite(Number(stored.detour))) refs.detour.value = String(clamp(Number(stored.detour), 0, 60));
       if (typeof stored.bikeFriendly === "boolean") refs.bikeFriendly.checked = stored.bikeFriendly;
       if (typeof stored.onlineRouting === "boolean") refs.onlineRouting.checked = stored.onlineRouting;
       if (stored.exportDatum === "wgs84" || stored.exportDatum === "gcj02") refs.exportDatum.value = stored.exportDatum;
@@ -648,8 +648,25 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     const metadata = elementsNamed(xml, "metadata")[0];
     const fallbackName = String(fileName || "导入路线").replace(/\.gpx$/i, "").slice(0, 120) || "导入路线";
     const routeName = (containers[0] && directChildText(containers[0], "name", 120)) || (metadata && directChildText(metadata, "name", 120)) || fallbackName;
-    const stops = waypoints.map((waypoint, index) => {
-      const pointIndex = nearestPointIndex(points, waypoint);
+    const importedStops = waypoints.map((point) => ({ point, index: nearestPointIndex(points, point) }));
+    // Some route apps keep named route/track points but omit standalone wpt.
+    // Preserve those names on import, while avoiding duplicate copies of a
+    // stop represented in more than one GPX section.
+    for (const collection of [routePoints, tracks]) {
+      collection.forEach((point, index) => {
+        if (!point.name || index === 0 || index === collection.length - 1) return;
+        const matchingIndex = collection === points || (collection.length === points.length && haversineKm(point, points[index]) < 0.001)
+          ? index : nearestPointIndex(points, point);
+        const existingNames = importedStops.filter((entry) => entry.index === matchingIndex).map((entry) => entry.point.name.replace(/^附近：/, ""));
+        const cleanName = point.name.replace(/^附近：/, "");
+        const covered = existingNames.includes(cleanName) || cleanName.split(" / ").every((name) => existingNames.includes(name.replace(/^附近：/, "")));
+        if (!covered) {
+          importedStops.push({ point, index: matchingIndex });
+        }
+      });
+    }
+    importedStops.sort((a, b) => a.index - b.index);
+    const stops = importedStops.map(({ point: waypoint, index: pointIndex }, index) => {
       return {
         id: index + 1,
         index: pointIndex,
@@ -668,8 +685,8 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     const first = points[0];
     const last = points[points.length - 1];
     return {
-      start: { label: first.name || "GPX 起点", lat: first.lat, lon: first.lon, exact: true, source: "GPX 文件" },
-      end: { label: last.name || "GPX 终点", lat: last.lat, lon: last.lon, exact: true, source: "GPX 文件" },
+      start: { label: first.name || routePoints[0]?.name || "GPX 起点", lat: first.lat, lon: first.lon, exact: true, source: "GPX 文件" },
+      end: { label: last.name || routePoints.at(-1)?.name || "GPX 终点", lat: last.lat, lon: last.lon, exact: true, source: "GPX 文件" },
       points,
       stops,
       distanceKm: distances[distances.length - 1],
@@ -696,7 +713,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
   function selectScenicDescriptors(start, end, scenic, detour, manualStops, discoveredStops, random) {
     if (manualStops.length) return manualStops.map((stop) => ({ ...stop, source: "用户添加" }));
     const isHangzhouQiandao = /杭州|西湖/.test(start.label) && /千岛湖/.test(end.label);
-    const isShanghaiHaiyan = /上海|上海站|上海火车站/.test(start.label) && /海盐/.test(end.label);
+    const isShanghaiHaiyan = /上海|上海站|上海火车站/.test(start.label) && /海盐|澉浦/.test(end.label);
     const targetCount = scenic >= 78 ? 4 : scenic >= 52 ? 3 : 2;
     if (isHangzhouQiandao) {
       return researchedScenicStops
@@ -777,7 +794,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
 
     const selectedStops = selectScenicDescriptors(start, end, scenic, detour, manualStops, discoveredStops, random);
     const isHangzhouQiandao = /杭州|西湖/.test(start.label) && /千岛湖/.test(end.label);
-    const isShanghaiHaiyan = /上海|上海站|上海火车站/.test(start.label) && /海盐/.test(end.label);
+    const isShanghaiHaiyan = /上海|上海站|上海火车站/.test(start.label) && /海盐|澉浦/.test(end.label);
     points = insertScenicPoints(points, selectedStops, manualStops.length > 0);
     const stops = selectedStops.map((descriptor, stopIndex) => {
       const hasExactPosition = Number.isFinite(Number(descriptor.lat)) && Number.isFinite(Number(descriptor.lon));
@@ -817,7 +834,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
       end,
       points,
       stops,
-      candidateStops: [...manualStops, ...discoveredStops],
+      candidateStops: manualStops.length ? manualStops : discoveredStops.length ? discoveredStops : selectedStops,
       distanceKm,
       directDistanceKm: haversineKm(start, end),
       detourPercent: haversineKm(start, end) > 0 ? ((distanceKm / haversineKm(start, end)) - 1) * 100 : 0,
@@ -1060,7 +1077,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
   function initStreetMap() {
     // createStreetMap converts the GCJ-02 Leaflet click back to WGS-84 before
     // invoking this callback, so waypoints remain compatible with OSRM/GPX.
-    streetMapAdapter = createStreetMap({ element: refs.streetMap, mapStage: refs.mapStage, onMapClick: (payload) => addWaypointFromMap(payload) });
+    streetMapAdapter = createStreetMap({ element: refs.streetMap, mapStage: refs.mapStage, onMapClick: (payload) => addWaypointFromMap(payload), onStopClick: highlightStop });
   }
 
   function renderStreetMap(route) {
@@ -1140,6 +1157,12 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
 
   function renderStops(route) {
     clear(refs.stopsList);
+    if (!route.stops.length) {
+      const empty = document.createElement("li");
+      empty.className = "stops-empty";
+      empty.textContent = "这条路线暂无已选途经点。可在上方添加地点，或使用地图加点。";
+      refs.stopsList.appendChild(empty);
+    }
     route.stops.forEach((stop) => {
       const item = document.createElement("li");
       item.className = "stop-item";
@@ -1188,6 +1211,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     const groups = document.querySelectorAll(".scenic-marker-group");
     const index = Number(stopId) - 1;
     if (groups[index]) groups[index].classList.add("is-highlighted");
+    streetMapAdapter?.highlightStop?.(stopId);
     const item = document.querySelector(`.stop-item[data-stop-id="${String(stopId)}"]`);
     if (item) item.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
@@ -1337,6 +1361,9 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
   }
 
   function getSupportStops(route) {
+    // Re-exporting an imported file preserves its own waypoints. Do not add
+    // newly invented mileage reminders to an otherwise unchanged GPX.
+    if (route.imported || route.source === "gpx") return [];
     if (route.supplies?.status === "ready" || route.supplies?.status === "partial") {
       return (route.supplies.items || []).map((item, index) => ({
         id: item.id || `supply-${index + 1}`,
@@ -1414,7 +1441,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     const supportCount = getSupportStopCount(currentRoute);
-    refs.exportStatus.textContent = `GPX 已生成（${datum === "gcj02" ? "GCJ-02" : "WGS84"}），含 ${supportCount} 个补给建议航点，可在 IGP 中导入。`;
+    refs.exportStatus.textContent = `GPX 已生成（${datum === "gcj02" ? "GCJ-02" : "WGS84"}），含 ${currentRoute.stops.length} 个途经点和 ${supportCount} 个补给点，途经点名称已写入路线。`;
   }
 
   async function shareGpx() {
@@ -1585,6 +1612,11 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     try {
       const source = await file.text();
       const route = parseGpxDocument(source, file.name);
+      // A pending online plan must not overwrite the GPX the user just opened.
+      generationId += 1;
+      activeController?.abort();
+      activeController = null;
+      setPlanningState(false);
       render(route, []);
       const waypointText = route.stops.length ? `，含 ${route.stops.length} 个航点` : "";
       setImportStatus(`已导入 ${route.sourceKind} ${route.points.length} 个点${waypointText}，可直接重新导出。`);
@@ -1624,7 +1656,8 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     });
   }
 
-  function render(route, warnings) {
+  function render(route, warnings = []) {
+    warnings = warnings.slice();
     currentRoute = route;
     refs.routeTitle.textContent = `${route.start.label} → ${route.end.label}`;
     refs.routeKind.textContent = route.kind;
@@ -1653,7 +1686,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     if (refs.fuelPlan) refs.fuelPlan.textContent = ridePlan.fuelCount
       ? `${ridePlan.fuelCount} 次 · 每 ${ridePlan.fuelIntervalKm} km`
       : "出发前补足水和能量";
-    refs.stopsCaption.textContent = route.scenic >= 78 ? "风景偏好精选" : "自动挑选";
+    refs.stopsCaption.textContent = route.imported ? "GPX 航点" : route.scenicSource === "用户添加途经点" ? "按指定顺序经过" : route.scenic >= 78 ? "风景偏好精选" : "自动挑选";
     const exportable = Boolean(route.imported || route.source === "osrm");
     refs.exportButton.disabled = !exportable;
     if (refs.shareButton) refs.shareButton.disabled = !exportable;
@@ -1674,7 +1707,9 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     if (route.elevationWarning) warnings.push(route.elevationWarning);
     if (route.source === "offline" && route.detourPercent > route.detour + 1) warnings.push(`离线示意绕行约 ${route.detourPercent.toFixed(0)}%，超过预算 ${route.detour}%；在线校路后会按预算调整。`);
     refs.status.className = warnings.length ? "form-status warning" : "form-status";
-    const researchText = route.scenicSource === "OpenStreetMap 公共 POI"
+    const researchText = !route.stops.length
+      ? "暂无已选途经点，可手动添加"
+      : route.scenicSource === "OpenStreetMap 公共 POI"
       ? "沿线景点来自公开地图 POI，仍需出发前核对"
       : route.scenicSource === "用户添加途经点"
         ? "沿线途经点由你指定，仍需出发前核对可达性"
@@ -1684,7 +1719,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
           ? "航点来自导入的 GPX 文件"
           : "景点为离线演示占位";
     const routingText = route.routingWarning ? ` ${route.routingWarning}` : "";
-    const summaryText = `${online ? "已按 OpenStreetMap 骑行道路校路" : "已生成离线示意路线"}：${route.points.length} 个轨迹点和 ${route.stops.length} 个风景航点。${researchText}。`;
+    const summaryText = `${online ? "已按 OpenStreetMap 骑行道路校路" : imported ? "已导入 GPX 路线" : "已生成离线示意路线"}：${route.points.length} 个轨迹点和 ${route.stops.length} 个途经点。${researchText}。`;
     refs.status.textContent = `${warnings.join(" ")}${warnings.length ? " " : ""}${summaryText}${routingText}`.trim();
   }
 
@@ -1738,15 +1773,16 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     const manualResolution = await resolveManualWaypoints(refs.onlineRouting.checked);
     if (thisGeneration !== generationId) return;
     let discoveredStops = [];
-    if (!manualResolution.resolved.length && refs.onlineRouting.checked && start.exact && end.exact && !(/杭州|西湖/.test(start.label) && /千岛湖/.test(end.label)) && !(/上海|上海站|上海火车站/.test(start.label) && /海盐/.test(end.label))) {
+    if (!manualResolution.resolved.length && refs.onlineRouting.checked && start.exact && end.exact && !(/杭州|西湖/.test(start.label) && /千岛湖/.test(end.label)) && !(/上海|上海站|上海火车站/.test(start.label) && /海盐|澉浦/.test(end.label))) {
       setPlanningState(true, "正在寻找风景点…");
       refs.status.textContent = "正在查找沿线公开景点…";
-      const discovery = await discoverScenicStopsApi(start, end, scenic, generationController.signal);
+      const discovery = await discoverScenicStopsApi(start, end, scenic, generationController.signal)
+        .catch(() => ({ stops: [], status: "unavailable" }));
       if (thisGeneration !== generationId) return;
       discoveredStops = (discovery.stops || []).map((element) => {
         const tags = element.tags || {};
-        const name = String(tags["name:zh"] || tags.name || "沿线景点").slice(0, 70);
-        return { ...element, name, type: tags.tourism === "viewpoint" ? "观景台" : "沿线景点", note: "OpenStreetMap 景点，请确认开放与可达性", source: "OpenStreetMap 公共 POI", sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`, scenicValue: tags.tourism === "viewpoint" ? 30 : tags.natural === "water" ? 25 : tags.natural === "wood" ? 20 : 15 };
+        const name = String(tags["name:zh"] || tags.name || element.name || "沿线景点").slice(0, 70);
+        return { ...element, name, type: tags.tourism === "viewpoint" ? "观景台" : "沿线景点", note: "OpenStreetMap 景点，请确认开放与可达性", source: "OpenStreetMap 公共 POI" };
       });
     }
     const route = buildRoute(start, end, scenic, detour, refs.bikeFriendly.checked, manualResolution.resolved, discoveredStops);
@@ -1792,15 +1828,14 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
         scenicResult.counts?.viewpoint ? `观景点 ${scenicResult.counts.viewpoint} 个` : "",
       ].filter(Boolean) };
       onlineRoute.score = scenicResult.score === null ? "未评估" : scenicResult.score;
-      onlineRoute.scenicSource = environment.status === "ready" || environment.status === "partial"
-        ? "OpenStreetMap 公共 POI"
-        : "在线环境查询不可用";
+      // Environment availability describes the score, not the origin of the
+      // selected route stops. Preserve manual/curated provenance after routing.
       const supplyItems = (environment.features || []).filter((feature) => ["cafe", "restaurant", "fuel"].includes(feature.tags?.amenity) || ["convenience", "supermarket"].includes(feature.tags?.shop)).map((feature) => {
         const index = nearestPointIndex(onlineRoute.points, feature);
         return { id: `${feature.type}-${feature.id}`, type: feature.tags.amenity || feature.tags.shop, name: feature.tags["name:zh"] || feature.tags.name || "未命名补给点", lat: feature.lat, lon: feature.lon, distance: haversineKm(onlineRoute.points[index], feature) * 1000, km: routeDistance(onlineRoute.points, index), sourceUrl: `https://www.openstreetmap.org/${feature.type}/${feature.id}` };
       }).filter((supply) => Number.isFinite(supply.distance) && supply.distance <= 500);
       onlineRoute.supplies = { status: environment.status === "ok" ? "ready" : environment.status, items: supplyItems };
-      render(onlineRoute, []);
+      render(onlineRoute, warnings.slice());
     } catch (error) {
       if (thisGeneration !== generationId) return;
       const message = error?.name === "AbortError" ? "请求超时" : (error?.message || "网络不可用");
