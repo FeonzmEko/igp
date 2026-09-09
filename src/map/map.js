@@ -113,6 +113,7 @@ export function createStreetMap({ element, mapStage, onMapClick, onTileError } =
   }
 
   const map = leaflet.map(element, { zoomControl: true, preferCanvas: true, attributionControl: true });
+  leaflet.control.scale({ imperial: false, position: "bottomleft" }).addTo(map);
   let tileLayer = null;
   let currentRoute = null;
   let sourceIndex = 0;
