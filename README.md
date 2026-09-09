@@ -79,7 +79,9 @@ npm run cf:deploy
 
 点击“发送到 iGPSPORT”会打开手机系统分享面板，最终是否出现 iGPSPORT 由手机系统和 iGPSPORT 的文件关联决定；不支持文件分享的浏览器会自动下载 GPX。路线服务仍由浏览器请求公开的 Nominatim、OpenStreetMap 骑行路由、Overpass 和 Open-Elevation 接口，公共服务限流或超时时页面会保留离线预览。
 
-默认使用公开服务：Nominatim 地理编码、OpenStreetMap 骑行路由、Overpass 公共 POI 查询和 Open-Elevation 高程服务。公共服务可能限流或超时，页面会保留离线预览并明确提示。服务地址和超时可在 `config.js` 修改。
+地点定位由独立的 `src/api/geocoder.js` 负责：Photon、ArcGIS 和 Nominatim 三个公开服务会错峰并行查询，任何一个服务卡住都不会独占全部等待时间。Photon 请求不再附带公共接口不支持的 `lang=zh` 参数；结果会按车站/景点类型和名称精确度排序，并拒绝海外同名地点。成功坐标会在浏览器缓存 30 天，取消规划时会同步取消仍在等待的请求。北京南站、天津之眼等车站和地标会优先返回具体 POI，而不是同名公交站或城市中心。
+
+路线其余在线能力使用 OpenStreetMap 骑行路由、Overpass 公共 POI 查询和 Open-Elevation 高程服务。公共服务可能限流或超时，页面会保留离线预览并明确提示。服务地址、定位总预算和缓存时长可在 `config.js` 修改。
 
 地图默认请求高德公开道路瓦片，无需在前端配置密钥。瓦片版权属于高德地图，公共端点的可用性和使用范围以高德服务条款为准；当前可访问不代表无限调用承诺。请求失败时依次切换 CARTO、OpenStreetMap，全部不可用时显示示意地图。Service Worker 只缓存本地应用文件，不缓存第三方地图瓦片。
 

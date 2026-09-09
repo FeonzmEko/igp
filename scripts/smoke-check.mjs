@@ -3,9 +3,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
-const [html, source] = await Promise.all([
+const [html, source, geocoder] = await Promise.all([
   readFile(resolve(root, "index.html"), "utf8"),
   readFile(resolve(root, "app.js"), "utf8"),
+  readFile(resolve(root, "src/api/geocoder.js"), "utf8"),
 ]);
 
 const requiredIds = [
@@ -27,4 +28,7 @@ for (const id of requiredIds) {
 }
 
 if (!html.includes('src="config.js') || !html.includes('src="app.js')) throw new Error("Runtime scripts are not wired");
+if (!source.includes('from "./src/api/geocoder.js"') || !geocoder.includes("export function createGeocoder")) {
+  throw new Error("Dedicated geocoder module is not wired");
+}
 console.log("Static bindings and runtime scripts look valid");

@@ -6,6 +6,7 @@ import { renderScenicDetails, renderSupplies } from "./src/route/presentation.js
 import { loadSettings, saveSettings } from "./src/state/store.js";
 import { createStreetMap } from "./src/map/map.js";
 import { buildGpxDocument } from "./src/gpx/exporter.js";
+import { geocodeAddress } from "./src/api/geocoder.js";
 
 (() => {
   "use strict";
@@ -128,15 +129,10 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
   const runtimeConfig = window.JINGXIAN_CONFIG || {};
   const OSRM_BASE_URL = runtimeConfig.osrmBaseUrl || "https://routing.openstreetmap.de/routed-bike";
   const OSRM_TIMEOUT_MS = Number(runtimeConfig.osrmTimeoutMs) || 12000;
-  const GEOCODER_BASE_URL = runtimeConfig.geocoderBaseUrl || "https://nominatim.openstreetmap.org/search";
-  const GEOCODER_FALLBACK_BASE_URL = runtimeConfig.geocoderFallbackBaseUrl || "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates";
-  const GEOCODER_PHOTON_BASE_URL = runtimeConfig.geocoderPhotonBaseUrl || "https://photon.komoot.io/api/";
-  const GEOCODER_TIMEOUT_MS = Number(runtimeConfig.geocoderTimeoutMs) || 8000;
   const OVERPASS_BASE_URL = runtimeConfig.overpassBaseUrl || "https://overpass-api.de/api/interpreter";
   const OVERPASS_TIMEOUT_MS = Number(runtimeConfig.overpassTimeoutMs) || 10000;
   const ELEVATION_BASE_URL = runtimeConfig.elevationBaseUrl || "https://api.open-elevation.com/api/v1/lookup";
   const ELEVATION_TIMEOUT_MS = Number(runtimeConfig.elevationTimeoutMs) || 14000;
-  const geocodeCache = new Map();
 
   const refs = {
     form: document.querySelector("#route-form"),
@@ -364,127 +360,16 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     return { label: value || "未命名地点", exact: false, source: "待定位" };
   }
 
-  async function geocodeLocation(raw, fallbackSeed) {
-    const value = String(raw || "").trim();
-    const parsed = parseLocation(value, fallbackSeed);
-    if (parsed.exact) return parsed;
-    if (!value) return parsed;
-    const cacheKey = value.toLocaleLowerCase();
-    const cached = geocodeCache.get(cacheKey);
-    if (cached) return { ...cached, label: value };
-
-    // Use short independent attempts so a stalled Nominatim request does not
-    // prevent the fallback provider from resolving a perfectly valid town.
-    const attemptTimeoutMs = Math.max(2000, Math.floor(GEOCODER_TIMEOUT_MS / 3));
-    async function requestJson(url, params) {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), attemptTimeoutMs);
-      try {
-        const response = await fetch(`${url}?${params.toString()}`, {
-          signal: controller.signal,
-          headers: { Accept: "application/json" },
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-      } finally {
-        window.clearTimeout(timeout);
-      }
-    }
-
-    let lastError = null;
+  async function geocodeLocation(raw, signal) {
+    const parsed = parseLocation(raw);
+    if (parsed.exact || !String(raw || "").trim()) return parsed;
     try {
-      const params = new URLSearchParams({
-        // countrycodes already restricts the search. Avoid appending a translated
-        // country name, which causes poor matches for Chinese township names.
-        q: value,
-        format: "jsonv2",
-        limit: "1",
-        countrycodes: "cn",
-        "accept-language": "zh-CN",
-      });
-      const results = await requestJson(GEOCODER_BASE_URL, params);
-      const result = Array.isArray(results) ? results[0] : null;
-      const lat = result ? Number(result.lat) : NaN;
-      const lon = result ? Number(result.lon) : NaN;
-      if (!result || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("没有匹配的地点");
-      const resolved = {
-        label: value,
-        lat,
-        lon,
-        exact: true,
-        geocoded: true,
-        source: "公开地图地理编码",
-        displayName: String(result.display_name || "").slice(0, 180),
-      };
-      geocodeCache.set(cacheKey, resolved);
-      return resolved;
+      return await geocodeAddress(raw, { signal });
     } catch (error) {
-      lastError = error;
-    }
-
-    // Photon is a second OpenStreetMap-backed provider. It is useful when the
-    // shared Nominatim service is rate-limited, and returns GeoJSON features.
-    try {
-      const params = new URLSearchParams({ q: `${value}, 中国`, limit: "1", lang: "zh" });
-      const payload = await requestJson(GEOCODER_PHOTON_BASE_URL, params);
-      const feature = Array.isArray(payload?.features)
-        ? payload.features.find((item) => Array.isArray(item?.geometry?.coordinates) && item.geometry.coordinates.length >= 2)
-        : null;
-      const lon = feature ? Number(feature.geometry.coordinates[0]) : NaN;
-      const lat = feature ? Number(feature.geometry.coordinates[1]) : NaN;
-      if (!feature || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("没有匹配的地点");
-      const properties = feature.properties || {};
-      const displayName = [properties.name, properties.city, properties.state, properties.country]
-        .filter(Boolean).join(", ");
-      const resolved = {
-        label: value,
-        lat,
-        lon,
-        exact: true,
-        geocoded: true,
-        source: "OpenStreetMap 备用地理编码",
-        displayName: String(displayName).slice(0, 180),
-      };
-      geocodeCache.set(cacheKey, resolved);
-      return resolved;
-    } catch (error) {
-      lastError = error;
-    }
-
-    // ArcGIS' public endpoint is CORS-enabled and often remains available when
-    // the shared Nominatim service is rate-limited. It also handles Chinese
-    // administrative names such as “澉浦镇” well.
-    try {
-      const params = new URLSearchParams({
-        SingleLine: `${value}, 中国`,
-        f: "json",
-        maxLocations: "1",
-        langCode: "CHS",
-        sourceCountry: "CHN",
-        outSR: "4326",
-      });
-      const payload = await requestJson(GEOCODER_FALLBACK_BASE_URL, params);
-      const candidate = Array.isArray(payload?.candidates)
-        ? payload.candidates.find((item) => Number(item?.score) >= 85 && Number.isFinite(Number(item?.location?.y)) && Number.isFinite(Number(item?.location?.x)))
-        : null;
-      const lat = candidate ? Number(candidate.location.y) : NaN;
-      const lon = candidate ? Number(candidate.location.x) : NaN;
-      if (!candidate || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("没有匹配的地点");
-      const resolved = {
-        label: value,
-        lat,
-        lon,
-        exact: true,
-        geocoded: true,
-        source: "备用地图地理编码",
-        displayName: String(candidate.address || "").slice(0, 180),
-      };
-      geocodeCache.set(cacheKey, resolved);
-      return resolved;
-    } catch (error) {
-      const timeout = lastError?.name === "AbortError" || error?.name === "AbortError";
-      const message = timeout ? "公开地图定位超时" : (error?.message || lastError?.message || "公开地图定位失败");
-      return { ...parsed, geocodeError: message };
+      // The generation id guards the UI; the signal also stops the actual
+      // provider requests, including manual waypoints still being resolved.
+      if (signal?.aborted) return { ...parsed, cancelled: true };
+      return { ...parsed, geocodeError: error.message || "地点查询服务暂时不可用", geocodeErrorCode: error.code };
     }
   }
 
@@ -1544,14 +1429,15 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
     return true;
   }
 
-  async function resolveManualWaypoints(online) {
+  async function resolveManualWaypoints(online, signal) {
     const resolved = [];
     const warnings = [];
     for (const waypoint of manualWaypoints) {
+      if (signal?.aborted) break;
       let location = Number.isFinite(waypoint.lat) && Number.isFinite(waypoint.lon)
         ? { label: waypoint.location, lat: waypoint.lat, lon: waypoint.lon, exact: true }
         : parseLocation(waypoint.location, waypoint.id);
-      if (online && !location.exact) location = await geocodeLocation(waypoint.location, waypoint.id);
+      if (online && !location.exact) location = await geocodeLocation(waypoint.location, signal);
       if (location.exact && Number.isFinite(location.lat) && Number.isFinite(location.lon)) {
         resolved.push({
           ...waypoint,
@@ -1639,7 +1525,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
 
   function formatLocationSource(location) {
     if (location?.source === "GPX 文件") return "GPX 文件";
-    if (location?.geocoded) return "公开地图已定位";
+    if (location?.geocoded) return `${location.source || "地点搜索"}${location.cached ? " · 已缓存" : " · 已定位"}`;
     if (location?.source === "本地地点库") return "本地地点库";
     if (location?.exact) return "坐标输入";
     if (location?.geocodeError) return "定位失败 · 可改用坐标";
@@ -1749,8 +1635,8 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
       setPlanningState(true, "正在定位地点…");
       setFormMessage("正在查找地点坐标…");
       const [resolvedStart, resolvedEnd] = await Promise.all([
-        geocodeLocation(startInput, 11),
-        geocodeLocation(endInput, 29),
+        geocodeLocation(startInput, generationController.signal),
+        geocodeLocation(endInput, generationController.signal),
       ]);
       if (thisGeneration !== generationId) return;
       start = resolvedStart;
@@ -1770,7 +1656,7 @@ import { buildGpxDocument } from "./src/gpx/exporter.js";
       setFormMessage(`${failures.join("；")}。${suggestion}`, true);
       return;
     }
-    const manualResolution = await resolveManualWaypoints(refs.onlineRouting.checked);
+    const manualResolution = await resolveManualWaypoints(refs.onlineRouting.checked, generationController.signal);
     if (thisGeneration !== generationId) return;
     let discoveredStops = [];
     if (!manualResolution.resolved.length && refs.onlineRouting.checked && start.exact && end.exact && !(/杭州|西湖/.test(start.label) && /千岛湖/.test(end.label)) && !(/上海|上海站|上海火车站/.test(start.label) && /海盐|澉浦/.test(end.label))) {

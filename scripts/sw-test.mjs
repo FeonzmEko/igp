@@ -76,6 +76,7 @@ test("install revalidates the application shell and activates the new worker", a
   const worker = harness();
   await worker.lifecycle("install");
   assert.ok(worker.precached.some((request) => new URL(request.url).pathname === "/index.html"));
+  assert.ok(worker.precached.some((request) => new URL(request.url).pathname === "/src/api/geocoder.js"));
   assert.ok(worker.precached.every((request) => request.cache === "reload"));
   assert.equal(worker.skipped, true);
 });

@@ -8,6 +8,7 @@ const APP_SHELL = [
   "/app.js",
   "/src/api/http.js",
   "/src/api/osm.js",
+  "/src/api/geocoder.js",
   "/src/api/osrm.js",
   "/src/api/elevation.js",
   "/src/route/planner.js",
