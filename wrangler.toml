@@ -1,0 +1,5 @@
+name = "jingxian-igp"
+compatibility_date = "2026-09-09"
+pages_build_output_dir = "./dist"
+
+# Cloudflare Pages hosts the static output. Route generation runs in the browser.

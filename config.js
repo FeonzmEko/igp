@@ -1,5 +1,5 @@
 window.JINGXIAN_CONFIG = Object.freeze({
-  osrmBaseUrl: "https://router.project-osrm.org",
+  osrmBaseUrl: "https://routing.openstreetmap.de/routed-bike",
   geocoderBaseUrl: "https://nominatim.openstreetmap.org/search",
   overpassBaseUrl: "https://overpass-api.de/api/interpreter",
   elevationBaseUrl: "https://api.open-elevation.com/api/v1/lookup",

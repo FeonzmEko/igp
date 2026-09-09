@@ -114,7 +114,7 @@
   ];
 
   const runtimeConfig = window.JINGXIAN_CONFIG || {};
-  const OSRM_BASE_URL = runtimeConfig.osrmBaseUrl || "https://router.project-osrm.org";
+  const OSRM_BASE_URL = runtimeConfig.osrmBaseUrl || "https://routing.openstreetmap.de/routed-bike";
   const OSRM_TIMEOUT_MS = Number(runtimeConfig.osrmTimeoutMs) || 12000;
   const GEOCODER_BASE_URL = runtimeConfig.geocoderBaseUrl || "https://nominatim.openstreetmap.org/search";
   const GEOCODER_TIMEOUT_MS = Number(runtimeConfig.geocoderTimeoutMs) || 8000;
@@ -128,6 +128,8 @@
     form: document.querySelector("#route-form"),
     start: document.querySelector("#start-input"),
     end: document.querySelector("#end-input"),
+    locateButton: document.querySelector("#locate-button"),
+    swapLocations: document.querySelector("#swap-locations"),
     startSource: document.querySelector("#start-source"),
     endSource: document.querySelector("#end-source"),
     scenic: document.querySelector("#scenic-range"),
@@ -143,6 +145,9 @@
     mapStage: document.querySelector("#map-stage"),
     status: document.querySelector("#form-status"),
     sampleButton: document.querySelector("#sample-button"),
+    generateButton: document.querySelector("#generate-button"),
+    generateButtonLabel: document.querySelector("#generate-button-label"),
+    cancelRouteButton: document.querySelector("#cancel-route-button"),
     importButton: document.querySelector("#import-button"),
     importButtonLabel: document.querySelector("#import-button-label"),
     gpxFileInput: document.querySelector("#gpx-file-input"),
@@ -158,12 +163,16 @@
     elevation: document.querySelector("#elevation-value"),
     stops: document.querySelector("#stops-value"),
     stopsCaption: document.querySelector("#stops-caption"),
+    rideTime: document.querySelector("#ride-time-value"),
+    fuelPlan: document.querySelector("#fuel-plan-value"),
     stopsList: document.querySelector("#stops-list"),
     exportButton: document.querySelector("#export-button"),
+    shareButton: document.querySelector("#share-button"),
     exportDatum: document.querySelector("#export-datum"),
     exportDatumNote: document.querySelector("#export-datum-note"),
     exportNote: document.querySelector("#export-note-text"),
     exportStatus: document.querySelector("#export-status"),
+    streetMap: document.querySelector("#street-map"),
     routeMap: document.querySelector("#route-map"),
     mapBackdrop: document.querySelector("#map-backdrop"),
     mapRoads: document.querySelector("#map-roads"),
@@ -185,6 +194,10 @@
   let waypointId = 1;
   let manualWaypoints = [];
   let mapAddMode = false;
+  let streetMap = null;
+  let streetRouteLayer = null;
+  let streetStopLayer = null;
+  let activeController = null;
   const SETTINGS_KEY = "jingxian-route-settings-v1";
   const MAX_GPX_FILE_SIZE = 20 * 1024 * 1024;
   const MAX_GPX_ROUTE_POINTS = 50000;
@@ -208,6 +221,73 @@
     } catch (_error) {
       // Private browsing or blocked storage should not affect route generation.
     }
+  }
+
+  function setFormMessage(message, warning = false) {
+    refs.status.className = warning ? "form-status warning" : "form-status";
+    refs.status.textContent = message;
+  }
+
+  function setPlanningState(isPlanning, label = "生成风景路线") {
+    if (refs.generateButton) refs.generateButton.disabled = isPlanning;
+    if (refs.generateButtonLabel) refs.generateButtonLabel.textContent = isPlanning ? label : "生成风景路线";
+    if (refs.cancelRouteButton) refs.cancelRouteButton.hidden = !isPlanning;
+    refs.form?.classList.toggle("is-planning", isPlanning);
+  }
+
+  function cancelRouteGeneration() {
+    generationId += 1;
+    activeController?.abort();
+    activeController = null;
+    setPlanningState(false);
+    setFormMessage("已取消规划，可以修改地点后重试。", true);
+  }
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      setFormMessage("当前浏览器不支持定位，请直接输入城市或纬度,经度。", true);
+      return;
+    }
+    const button = refs.locateButton;
+    if (button) {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+    }
+    setFormMessage("正在读取手机当前位置…");
+    navigator.geolocation.getCurrentPosition((position) => {
+      const { latitude, longitude } = position.coords;
+      refs.start.value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      if (refs.startSource) refs.startSource.textContent = "手机当前位置";
+      persistSettings();
+      setFormMessage("已使用当前位置，点击“生成风景路线”开始规划。");
+      refs.start.focus();
+      if (button) {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }
+    }, (error) => {
+      const message = error?.code === 1
+        ? "定位权限被拒绝，请允许浏览器定位，或手动输入地点。"
+        : "暂时无法获取当前位置，请检查手机定位后重试。";
+      setFormMessage(message, true);
+      if (button) {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+  }
+
+  function swapLocations() {
+    const start = refs.start.value;
+    refs.start.value = refs.end.value;
+    refs.end.value = start;
+    const startSource = refs.startSource?.textContent || "";
+    if (refs.startSource) refs.startSource.textContent = refs.endSource?.textContent || "待定位";
+    if (refs.endSource) refs.endSource.textContent = startSource || "待定位";
+    persistSettings();
+    routeSeed += 1;
+    setFormMessage("已交换起终点，正在重新规划…");
+    void generateRoute();
   }
 
   function restoreSettings() {
@@ -740,7 +820,7 @@
       distanceKm: Number.isFinite(Number(distanceMeters)) ? Number(distanceMeters) / 1000 : routeDistance(points),
       elevationGain: Math.max(0, Math.round(elevationGain)),
       source: "osrm",
-      provider: "OSRM cycling",
+      provider: "OpenStreetMap 骑行路由",
     };
   }
 
@@ -845,7 +925,7 @@
     onlineRoute.droppedStops = droppedStops;
     const warnings = [];
     if (droppedStops) warnings.push(`已按最多绕行 ${route.detour}% 调整，移除 ${droppedStops} 个较远景点。`);
-    if (exclusionFallback) warnings.push("当前 OSRM 服务不支持道路排除参数，已回退到普通 cycling 路线，请出发前核对道路类型。");
+    if (exclusionFallback) warnings.push("当前骑行路由服务不支持道路排除参数，请出发前核对道路类型。");
     onlineRoute.routingWarning = warnings.join(" ");
     try {
       onlineRoute = await enrichRouteElevations(onlineRoute, signal);
@@ -891,7 +971,57 @@
     return project;
   }
 
+  function initStreetMap() {
+    if (!refs.streetMap || !window.L) return;
+    streetMap = window.L.map(refs.streetMap, { zoomControl: true, preferCanvas: true, attributionControl: true });
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(streetMap);
+    streetRouteLayer = window.L.layerGroup().addTo(streetMap);
+    streetStopLayer = window.L.layerGroup().addTo(streetMap);
+    streetMap.on("click", addWaypointFromMap);
+    refs.mapStage.classList.add("has-street-map");
+    window.setTimeout(() => streetMap?.invalidateSize(), 0);
+  }
+
+  function renderStreetMap(route) {
+    if (!streetMap || !streetRouteLayer || !streetStopLayer) return;
+    streetRouteLayer.clearLayers();
+    streetStopLayer.clearLayers();
+    const indices = samplePointIndices(route.points.length, 2000);
+    const latLngs = indices.map((index) => [route.points[index].lat, route.points[index].lon]);
+    const isOnline = route.source === "osrm";
+    window.L.polyline(latLngs, {
+      color: isOnline ? "#315a4a" : "#c86e3f",
+      weight: 5,
+      opacity: .9,
+      lineCap: "round",
+      lineJoin: "round",
+      dashArray: isOnline ? undefined : "8 8",
+    }).addTo(streetRouteLayer);
+    const start = route.points[0];
+    const end = route.points[route.points.length - 1];
+    window.L.circleMarker([start.lat, start.lon], { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#315a4a", fillOpacity: 1 }).bindTooltip(route.start.label, { direction: "top", offset: [0, -8] }).addTo(streetStopLayer);
+    window.L.circleMarker([end.lat, end.lon], { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#c86e3f", fillOpacity: 1 }).bindTooltip(route.end.label, { direction: "top", offset: [0, -8] }).addTo(streetStopLayer);
+    route.stops.forEach((stop) => {
+      window.L.circleMarker([stop.lat, stop.lon], { radius: 6, color: "#fbfaf7", weight: 2, fillColor: "#c86e3f", fillOpacity: 1 })
+        .bindPopup(`<strong>${escapeHtml(stop.name)}</strong><br>${escapeHtml(stop.type)} · ${escapeHtml(stop.note)}`)
+        .addTo(streetStopLayer);
+    });
+    const bounds = window.L.latLngBounds(latLngs);
+    if (bounds.isValid()) streetMap.fitBounds(bounds, { padding: [24, 24], maxZoom: 13, animate: false });
+    window.setTimeout(() => streetMap?.invalidateSize(), 0);
+  }
+
+  function escapeHtml(value) {
+    const node = document.createElement("span");
+    node.textContent = String(value ?? "");
+    return node.innerHTML;
+  }
+
   function renderMap(route) {
+    renderStreetMap(route);
     clear(refs.mapBackdrop);
     clear(refs.mapRoads);
     clear(refs.mapRoute);
@@ -1119,11 +1249,11 @@
       const coordinate = serializeCoordinate(point, datum);
       return `      <rtept lat="${coordinate.lat}" lon="${coordinate.lon}">${elevationTag(point)}</rtept>`;
     }).join("\n");
-    const waypoints = route.stops.map((stop) => {
+    const waypoints = [...route.stops, ...getSupportStops(route)].map((stop) => {
       const link = stop.sourceUrl ? `\n    <link href="${escapeXml(stop.sourceUrl)}"><text>${escapeXml(stop.source || "公开资料线索")}</text></link>` : "";
       const coordinate = serializeCoordinate(stop, datum);
       const elevation = stop.hasElevation && Number.isFinite(stop.ele) ? `\n    <ele>${stop.ele.toFixed(1)}</ele>` : "";
-      return `  <wpt lat="${coordinate.lat}" lon="${coordinate.lon}">${elevation}\n    <name>${escapeXml(stop.name)}</name>\n    <desc>${escapeXml(`${stop.type} · ${stop.note} · 线索：${stop.source || "公开资料"}`)}</desc>${link}\n    <type>scenic</type>\n  </wpt>`;
+      return `  <wpt lat="${coordinate.lat}" lon="${coordinate.lon}">${elevation}\n    <name>${escapeXml(stop.name)}</name>\n    <desc>${escapeXml(`${stop.type} · ${stop.note} · 线索：${stop.source || "公开资料"}`)}</desc>${link}\n    <type>${escapeXml(stop.gpxType || "scenic")}</type>\n  </wpt>`;
     }).join("\n");
     return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Jingxian IGP Scenic Route Lab" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
@@ -1149,21 +1279,140 @@ ${trackPoints}
 `;
   }
 
+  function formatDuration(minutes) {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const hours = Math.floor(total / 60);
+    const rest = total % 60;
+    if (!hours) return `${rest} 分钟`;
+    return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+  }
+
+  function buildRidePlan(route) {
+    const distanceKm = Math.max(0, Number(route.distanceKm) || 0);
+    const elevationGain = Math.max(0, Number(route.elevationGain) || 0);
+    const scenic = clamp(Number(route.scenic) || 50, 0, 100);
+    const baseSpeed = clamp(25 - scenic * 0.045 + (route.bikeFriendly ? 1.2 : 0), 15, 27);
+    const climbPenalty = Math.min(6, (elevationGain / Math.max(distanceKm, 1)) * 0.55);
+    const movingSpeed = clamp(baseSpeed - climbPenalty, 11, 27);
+    const movingMinutes = distanceKm > 0 ? (distanceKm / movingSpeed) * 60 : 0;
+    const fuelCount = Math.max(0, Math.ceil(distanceKm / 40) - 1);
+    const scenicBreakCount = Math.min(3, Array.isArray(route.stops) ? route.stops.length : 0);
+    const breakMinutes = fuelCount * 8 + scenicBreakCount * 5;
+    return {
+      movingSpeed,
+      movingMinutes,
+      fuelCount,
+      totalMinutes: movingMinutes + breakMinutes,
+      fuelIntervalKm: 40,
+    };
+  }
+
+  function pointAtDistance(points, targetKm) {
+    if (!Array.isArray(points) || !points.length) return null;
+    if (targetKm <= 0) return points[0];
+    let travelled = 0;
+    for (let index = 1; index < points.length; index += 1) {
+      const segment = haversineKm(points[index - 1], points[index]);
+      if (travelled + segment >= targetKm) {
+        const ratio = segment > 0 ? (targetKm - travelled) / segment : 0;
+        return {
+          lat: points[index - 1].lat + (points[index].lat - points[index - 1].lat) * ratio,
+          lon: points[index - 1].lon + (points[index].lon - points[index - 1].lon) * ratio,
+          ele: Number.isFinite(points[index - 1].ele) && Number.isFinite(points[index].ele)
+            ? points[index - 1].ele + (points[index].ele - points[index - 1].ele) * ratio
+            : undefined,
+          hasElevation: Boolean(points[index - 1].hasElevation && points[index].hasElevation),
+        };
+      }
+      travelled += segment;
+    }
+    return points[points.length - 1];
+  }
+
+  function getSupportStops(route) {
+    const hasExistingSupportStop = (route.stops || []).some((stop) => {
+      const gpxType = String(stop.gpxType || "").toLowerCase();
+      return gpxType === "fuel" || stop.type === "骑行补给";
+    });
+    if (hasExistingSupportStop) return [];
+    const plan = buildRidePlan(route);
+    const supportStops = [];
+    for (let index = 1; index <= plan.fuelCount; index += 1) {
+      const km = index * plan.fuelIntervalKm;
+      const point = pointAtDistance(route.points, km);
+      if (!point) continue;
+      const nearScenic = (route.stops || []).some((stop) => haversineKm(stop, point) < 3);
+      if (nearScenic) continue;
+      supportStops.push({
+        id: `fuel-${index}`,
+        index: nearestPointIndex(route.points, point),
+        name: `补给建议 ${km} km`,
+        type: "骑行补给",
+        note: "建议在此里程前后补水、补充能量；请出发前确认店铺或水源。",
+        source: "按里程估算",
+        sourceUrl: "",
+        gpxType: "fuel",
+        lat: point.lat,
+        lon: point.lon,
+        ele: point.ele,
+        hasElevation: point.hasElevation,
+        km,
+      });
+    }
+    return supportStops;
+  }
+
+  function getSupportStopCount(route) {
+    const existing = (route.stops || []).filter((stop) => {
+      const gpxType = String(stop.gpxType || "").toLowerCase();
+      return gpxType === "fuel" || stop.type === "骑行补给";
+    }).length;
+    return existing || getSupportStops(route).length;
+  }
+
+  function safeFileStem(value, fallback) {
+    return String(value || "").replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100) || fallback;
+  }
+
   function exportGpx() {
     if (!currentRoute) return;
     const datum = refs.exportDatum.value === "gcj02" ? "gcj02" : "wgs84";
     const blob = new Blob([buildGpx(currentRoute, datum)], { type: "application/gpx+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
-    const safeStart = currentRoute.start.label.replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "") || "start";
-    const safeEnd = currentRoute.end.label.replace(/[^\w\u4e00-\u9fff-]+/g, "-").replace(/^-+|-+$/g, "") || "end";
+    const importedName = currentRoute.imported ? safeFileStem(String(currentRoute.sourceFileName || "").replace(/\.gpx$/i, ""), "route") : "";
+    const safeStart = safeFileStem(currentRoute.start.label, "start");
+    const safeEnd = safeFileStem(currentRoute.end.label, "end");
     anchor.href = url;
-    anchor.download = `jingxian-${safeStart}-${safeEnd}.gpx`;
+    anchor.download = importedName ? `${importedName}.gpx` : `jingxian-${safeStart}-${safeEnd}.gpx`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    refs.exportStatus.textContent = `GPX 已生成（${datum === "gcj02" ? "GCJ-02" : "WGS84"}），文件可在 IGP 的路线导入中打开。`;
+    const supportCount = getSupportStopCount(currentRoute);
+    refs.exportStatus.textContent = `GPX 已生成（${datum === "gcj02" ? "GCJ-02" : "WGS84"}），含 ${supportCount} 个补给建议航点，可在 IGP 中导入。`;
+  }
+
+  async function shareGpx() {
+    if (!currentRoute) return;
+    const datum = refs.exportDatum.value === "gcj02" ? "gcj02" : "wgs84";
+    const importedName = currentRoute.imported ? safeFileStem(String(currentRoute.sourceFileName || "").replace(/\.gpx$/i, ""), "route") : "";
+    const safeStart = safeFileStem(currentRoute.start.label, "start");
+    const safeEnd = safeFileStem(currentRoute.end.label, "end");
+    const fileName = importedName ? `${importedName}.gpx` : `jingxian-${safeStart}-${safeEnd}.gpx`;
+    const file = new File([buildGpx(currentRoute, datum)], fileName, { type: "application/gpx+xml" });
+    if (typeof navigator.share === "function") {
+      try {
+        if (navigator.canShare && !navigator.canShare({ files: [file] })) throw new Error("File sharing is unavailable");
+        await navigator.share({ title: currentRoute.routeName, text: "景线骑行路线 GPX，可在 iGPSPORT 中导入", files: [file] });
+        refs.exportStatus.textContent = "已打开系统分享面板，请选择 iGPSPORT 导入路线。";
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+      }
+    }
+    exportGpx();
+    refs.exportStatus.textContent = `浏览器不支持直接分享，GPX 已下载（含 ${getSupportStopCount(currentRoute)} 个补给建议航点）；在 iGPSPORT 中选择该文件导入。`;
   }
 
   function setImportStatus(message, isError = false) {
@@ -1280,14 +1529,22 @@ ${trackPoints}
   function addWaypointFromMap(event) {
     if (!mapAddMode || !currentRoute) return;
     if (event.target.closest?.(".scenic-marker-group")) return;
-    const rect = refs.routeMap.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const x = ((event.clientX - rect.left) / rect.width) * 900;
-    const y = ((event.clientY - rect.top) / rect.height) * 560;
-    const project = projectFactory(currentRoute.points, 900, 560, 82);
-    const point = project.inverse(x, y);
+    let point;
+    if (event.latlng && Number.isFinite(event.latlng.lat) && Number.isFinite(event.latlng.lng)) {
+      point = { lat: event.latlng.lat, lon: event.latlng.lng };
+    } else {
+      const rect = refs.routeMap.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const x = ((event.clientX - rect.left) / rect.width) * 900;
+      const y = ((event.clientY - rect.top) / rect.height) * 560;
+      const project = projectFactory(currentRoute.points, 900, 560, 82);
+      point = project.inverse(x, y);
+    }
     addManualWaypoint(`地图点 ${manualWaypoints.length + 1}`, `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`, point);
-    refs.status.textContent = "已加入地图途经点，点击“生成风景路线”使路线经过它。";
+    toggleMapAddMode();
+    routeSeed += 1;
+    setFormMessage("已加入地图途经点，正在重新规划…");
+    void generateRoute();
   }
 
   async function importGpxFile(file) {
@@ -1348,9 +1605,9 @@ ${trackPoints}
     refs.routePointCount.textContent = `${route.points.length} 个轨迹点`;
     const online = route.source === "osrm";
     const imported = route.source === "gpx";
-    refs.routeSource.textContent = online ? "OSRM 道路轨迹" : imported ? "GPX 导入" : "离线示意";
+    refs.routeSource.textContent = online ? "骑行道路轨迹" : imported ? "GPX 导入" : "离线示意";
     refs.routeSource.classList.toggle("online", online);
-    refs.mapNoteText.textContent = online ? "OSRM cycling 道路轨迹 · 轨迹可导入 IGP" : imported ? "GPX 导入轨迹 · 可重新导出" : "离线示意路线 · 轨迹可导入 IGP";
+    refs.mapNoteText.textContent = online ? "OpenStreetMap 骑行道路 · 可导入 IGP" : imported ? "GPX 导入轨迹 · 可重新导出" : "离线示意路线 · 仅供预览";
     refs.routeScore.textContent = `${route.score}`;
     refs.distance.textContent = route.distanceKm < 10 ? route.distanceKm.toFixed(1) : route.distanceKm.toFixed(0);
     if (refs.directDistance) {
@@ -1365,15 +1622,21 @@ ${trackPoints}
     if (refs.endSource) refs.endSource.textContent = formatLocationSource(route.end);
     refs.elevation.textContent = route.elevationGain.toLocaleString("zh-CN");
     refs.stops.textContent = String(route.stops.length);
+    const ridePlan = buildRidePlan(route);
+    if (refs.rideTime) refs.rideTime.textContent = formatDuration(ridePlan.totalMinutes);
+    if (refs.fuelPlan) refs.fuelPlan.textContent = ridePlan.fuelCount
+      ? `${ridePlan.fuelCount} 次 · 每 ${ridePlan.fuelIntervalKm} km`
+      : "出发前补足水和能量";
     refs.stopsCaption.textContent = route.scenic >= 78 ? "风景偏好精选" : "自动挑选";
     const exportable = Boolean(route.imported || route.source === "osrm");
     refs.exportButton.disabled = !exportable;
+    if (refs.shareButton) refs.shareButton.disabled = !exportable;
     if (refs.exportDatumNote) refs.exportDatumNote.textContent = refs.exportDatum.value === "gcj02"
       ? "标准 GPX 1.1 · UTF-8 · GCJ-02 坐标"
       : "标准 GPX 1.1 · UTF-8 · WGS84 坐标";
     refs.exportStatus.textContent = "";
     if (refs.exportNote) refs.exportNote.textContent = exportable
-      ? "包含完整道路轨迹与航点，可直接导入 IGP"
+      ? "包含完整道路轨迹、景点和补给建议，可直接导入 IGP"
       : route.source === "offline"
         ? "当前是离线示意，仅供预览；开启在线道路校路后才能导出"
         : "当前路线不可导出，请先生成有效道路轨迹";
@@ -1393,17 +1656,19 @@ ${trackPoints}
           ? "航点来自导入的 GPX 文件"
           : "景点为离线演示占位";
     const routingText = route.routingWarning ? ` ${route.routingWarning}` : "";
-    const summaryText = `${online ? "已按 OSRM cycling 道路校路" : "已生成离线示意路线"}：${route.points.length} 个轨迹点和 ${route.stops.length} 个风景航点。${researchText}。`;
+    const summaryText = `${online ? "已按 OpenStreetMap 骑行道路校路" : "已生成离线示意路线"}：${route.points.length} 个轨迹点和 ${route.stops.length} 个风景航点。${researchText}。`;
     refs.status.textContent = `${warnings.join(" ")}${warnings.length ? " " : ""}${summaryText}${routingText}`.trim();
   }
 
   async function generateRoute() {
+    activeController?.abort();
     const thisGeneration = ++generationId;
+    setPlanningState(true, "正在准备路线…");
     const startInput = String(refs.start.value || "").trim();
     const endInput = String(refs.end.value || "").trim();
     if (!startInput || !endInput) {
-      refs.status.className = "form-status warning";
-      refs.status.textContent = "请先填写出发地和目的地。";
+      setPlanningState(false);
+      setFormMessage("请先填写出发地和目的地。", true);
       return;
     }
     let start = parseLocation(startInput, 11);
@@ -1414,8 +1679,8 @@ ${trackPoints}
     persistSettings();
 
     if (refs.onlineRouting.checked && (!start.exact || !end.exact)) {
-      refs.status.className = "form-status warning";
-      refs.status.textContent = "正在查找地点坐标…";
+      setPlanningState(true, "正在定位地点…");
+      setFormMessage("正在查找地点坐标…");
       const [resolvedStart, resolvedEnd] = await Promise.all([
         geocodeLocation(startInput, 11),
         geocodeLocation(endInput, 29),
@@ -1428,6 +1693,7 @@ ${trackPoints}
     if (thisGeneration !== generationId) return;
     let discoveredStops = [];
     if (!manualResolution.resolved.length && refs.onlineRouting.checked && start.exact && end.exact && !(/杭州|西湖/.test(start.label) && /千岛湖/.test(end.label)) && !(/上海|上海站|上海火车站/.test(start.label) && /海盐/.test(end.label))) {
+      setPlanningState(true, "正在寻找风景点…");
       refs.status.textContent = "正在查找沿线公开景点…";
       const discovery = await discoverScenicStops(start, end, scenic);
       if (thisGeneration !== generationId) return;
@@ -1441,16 +1707,20 @@ ${trackPoints}
     if (!end.exact && !end.geocodeError) warnings.push(`无法定位“${end.label}”，请换一个更具体的名称或输入纬度,经度。`);
     render(route, warnings);
 
-    if (!refs.onlineRouting.checked) return;
+    if (!refs.onlineRouting.checked) {
+      setPlanningState(false);
+      return;
+    }
     if (!start.exact || !end.exact) {
-      refs.status.className = "form-status warning";
-      refs.status.textContent = `${warnings.join(" ")} 无法在线校路，请输入更具体的地点或纬度,经度。`;
+      setPlanningState(false);
+      setFormMessage(`${warnings.join(" ")} 无法在线校路，请输入更具体的地点或纬度,经度。`, true);
       return;
     }
 
-    refs.status.className = "form-status warning";
-    refs.status.textContent = "正在请求 OSRM cycling 道路轨迹，完成后会替换示意路线…";
+    setPlanningState(true, "正在校路…");
+    setFormMessage("正在请求骑行道路轨迹，完成后会替换示意路线…");
     const controller = new AbortController();
+    activeController = controller;
     const timeout = window.setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
     try {
       const onlineRoute = await fetchOnlineRoute(route, controller.signal);
@@ -1462,6 +1732,8 @@ ${trackPoints}
       render(route, [`在线道路校路失败（${message}），已保留离线示意路线。`]);
     } finally {
       window.clearTimeout(timeout);
+      if (activeController === controller) activeController = null;
+      if (thisGeneration === generationId) setPlanningState(false);
     }
   }
 
@@ -1470,6 +1742,9 @@ ${trackPoints}
     routeSeed += 1;
     void generateRoute();
   });
+  refs.locateButton?.addEventListener("click", useCurrentLocation);
+  refs.swapLocations?.addEventListener("click", swapLocations);
+  refs.cancelRouteButton?.addEventListener("click", cancelRouteGeneration);
   refs.start.addEventListener("change", persistSettings);
   refs.end.addEventListener("change", persistSettings);
   refs.scenic.addEventListener("input", updateSlider);
@@ -1483,6 +1758,7 @@ ${trackPoints}
       : "标准 GPX 1.1 · UTF-8 · WGS84 坐标";
   });
   refs.exportButton.addEventListener("click", exportGpx);
+  refs.shareButton?.addEventListener("click", () => { void shareGpx(); });
   refs.addWaypoint.addEventListener("click", () => {
     if (addManualWaypoint(refs.waypointName.value, refs.waypointLocation.value)) {
       refs.waypointName.value = "";
@@ -1531,6 +1807,7 @@ ${trackPoints}
   });
 
   restoreSettings();
+  initStreetMap();
   renderWaypointEditor();
   updateSlider();
   void generateRoute();

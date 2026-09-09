@@ -10,6 +10,10 @@ const [html, source] = await Promise.all([
 
 const requiredIds = [
   "route-form",
+  "street-map",
+  "locate-button",
+  "swap-locations",
+  "cancel-route-button",
   "waypoints-list",
   "map-add-toggle",
   "export-datum",

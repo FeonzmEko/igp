@@ -1,0 +1,13 @@
+{
+  "name": "景线 · IGP 风景骑行路线",
+  "short_name": "景线",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2eee5",
+  "theme_color": "#315a4a",
+  "description": "为 IGP 和 iGPSPORT 准备风景骑行路线并导出 GPX。",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

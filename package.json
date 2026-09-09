@@ -4,8 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "python -m http.server 4173",
+    "dev": "npm run build && python -m http.server 4173 --directory dist",
     "build": "node scripts/build.mjs",
-    "check": "node --check app.js && node --check config.js && node scripts/smoke-check.mjs"
+    "check": "node --check app.js && node --check config.js && node scripts/smoke-check.mjs",
+    "test:sw": "node --test scripts/sw-test.mjs",
+    "test:ui": "playwright test tests/mobile.spec.mjs",
+    "cf:dev": "npm run build && npx wrangler pages dev dist",
+    "cf:deploy": "npm run build && npx wrangler pages deploy dist"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1"
   }
 }
