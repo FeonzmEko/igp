@@ -231,6 +231,21 @@
               </div>
               <span class="route-score" id="route-score">—</span>
             </div>
+            <section id="scenic-score-panel" class="scenic-score-panel" aria-label="风景评分">
+              <div class="scenic-score-heading">
+                <span class="scenic-score-stars" id="scenic-score-stars" aria-hidden="true">☆☆☆☆☆</span>
+                <span class="scenic-score-value" id="scenic-score-value">未评估</span>
+              </div>
+              <p class="scenic-score-status" id="scenic-score-status">等待路线数据</p>
+              <div class="scenic-features-block">
+                <span class="scenic-section-label">路线特点</span>
+                <ul id="scenic-features-list" class="scenic-features-list"></ul>
+              </div>
+              <details id="scenic-score-details" class="scenic-score-details">
+                <summary>评分明细</summary>
+                <ul id="scenic-score-breakdown" class="scenic-score-breakdown"></ul>
+              </details>
+            </section>
             <div class="metric-grid">
               <div class="metric"><span>预计距离</span><strong id="distance-value">—</strong><small>公里</small></div>
               <div class="metric"><span>累计爬升</span><strong id="elevation-value">—</strong><small>米</small></div>
@@ -244,6 +259,10 @@
               <div class="ride-plan-item"><span class="ride-plan-icon" aria-hidden="true">◷</span><span><small>预计骑行时间</small><strong id="ride-time-value">—</strong></span></div>
               <div class="ride-plan-item"><span class="ride-plan-icon" aria-hidden="true">＋</span><span><small>补给建议</small><strong id="fuel-plan-value">—</strong></span></div>
             </div>
+            <section id="supplies-panel" class="supplies-panel" aria-label="路线补给">
+              <div class="supplies-heading"><span>路线补给</span><span id="supplies-status" class="supplies-status">未查询</span></div>
+              <div id="supplies-list" class="supplies-list"></div>
+            </section>
             <div class="stops-heading"><span>沿途停留建议</span><span id="stops-caption">自动挑选</span></div>
             <ol id="stops-list" class="stops-list"></ol>
             <div class="summary-footer">
@@ -307,9 +326,9 @@
 
       <footer class="footer"><span>景线 / IGP Scenic Route Lab</span><span>把到达，变成值得记住的一段路。</span></footer>
     </div>
-    <script src="vendor/leaflet/leaflet.js" defer></script>
-    <script src="config.js?v=2" defer></script>
-    <script src="app.js?v=2" defer></script>
+    <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="config.js" defer></script>
+    <script type="module" src="app.js"></script>
     <script>
       if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
     </script>

@@ -168,6 +168,11 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
 .leaflet-container { color: var(--ink); font: inherit; }
 .leaflet-control-attribution { font-size: 9px; }
 .leaflet-popup-content { margin: 10px 12px; font-size: 11px; line-height: 1.45; }
+/* Keep the SVG route visible when the tile provider fails. The Leaflet
+   container remains mounted underneath so a later tile load can recover. */
+.map-stage.tile-fallback .street-map { position: absolute; inset: 0; z-index: 1; display: block; min-height: 0; background: transparent; pointer-events: none; }
+.map-stage.tile-fallback #route-map { position: absolute; inset: 0; z-index: 2; display: block; min-height: 0; pointer-events: auto; }
+.map-stage.tile-fallback .map-scale, .map-stage.tile-fallback .map-note { z-index: 3; }
 .map-scale { position: absolute; left: 23px; bottom: 25px; display: grid; gap: 4px; color: var(--ink-soft); font-size: 10px; }
 .map-scale span { display: block; width: 65px; height: 5px; border-right: 1px solid currentColor; border-left: 1px solid currentColor; background: linear-gradient(currentColor, currentColor) center / 100% 1px no-repeat; }
 .map-note { position: absolute; right: 18px; bottom: 18px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; color: var(--ink-soft); background: rgba(251, 250, 247, .82); border: 1px solid rgba(216, 209, 196, .86); font-size: 10px; backdrop-filter: blur(4px); }
@@ -184,6 +189,24 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
 .route-summary { display: flex; flex-direction: column; padding: 25px 25px 21px; }
 .summary-topline h2 { font-size: 22px; }
 .route-score { min-width: 54px; padding-top: 5px; color: var(--orange); font-family: Georgia, "Songti SC", serif; font-size: 27px; text-align: right; }
+.scenic-score-panel { margin-top: 17px; padding: 13px 0 2px; border-top: 1px solid var(--line); }
+.scenic-score-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.scenic-score-stars { color: var(--orange); font-family: Georgia, "Songti SC", serif; font-size: 17px; letter-spacing: 1px; white-space: nowrap; }
+.scenic-score-value { color: var(--forest); font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.scenic-score-status { margin: 4px 0 0; color: var(--ink-faint); font-size: 10px; }
+.scenic-features-block { margin-top: 11px; }
+.scenic-section-label { color: var(--ink-soft); font-size: 10px; font-weight: 700; }
+.scenic-features-list { display: flex; flex-wrap: wrap; gap: 5px 12px; margin: 6px 0 0; padding: 0; color: var(--ink-soft); font-size: 10px; list-style: none; }
+.scenic-features-list li { position: relative; padding-left: 10px; }
+.scenic-features-list li::before { position: absolute; top: .52em; left: 0; width: 4px; height: 4px; content: ""; background: var(--orange); border-radius: 50%; }
+.scenic-features-list .scenic-empty-note { padding-left: 0; color: var(--ink-faint); }
+.scenic-features-list .scenic-empty-note::before { display: none; }
+.scenic-score-details { margin-top: 9px; color: var(--ink-faint); font-size: 10px; }
+.scenic-score-details summary { width: fit-content; cursor: pointer; color: var(--forest); }
+.scenic-score-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 12px; margin: 7px 0 0; padding: 0; list-style: none; }
+.scenic-score-breakdown li { display: flex; justify-content: space-between; gap: 8px; }
+.scenic-score-breakdown strong { color: var(--forest); font-variant-numeric: tabular-nums; }
+.scenic-score-breakdown .scenic-empty-note { grid-column: 1 / -1; color: var(--ink-faint); }
 .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 27px; padding: 17px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .metric { display: grid; gap: 4px; min-width: 0; }
 .metric span { color: var(--ink-faint); font-size: 10px; }
@@ -197,6 +220,18 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
 .ride-plan-item small { color: var(--ink-faint); font-size: 9px; white-space: nowrap; }
 .ride-plan-item strong { overflow: hidden; color: var(--forest); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .ride-plan-icon { display: grid; flex: 0 0 auto; place-items: center; width: 21px; height: 21px; color: var(--orange); background: var(--orange-pale); border-radius: 50%; font-family: Georgia, serif; font-size: 14px; line-height: 1; }
+.supplies-panel { margin-top: 15px; padding-top: 12px; border-top: 1px solid #ebe7de; }
+.supplies-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink-soft); font-size: 11px; font-weight: 700; }
+.supplies-status { color: var(--ink-faint); font-size: 9px; font-weight: 500; white-space: nowrap; }
+.supplies-list { display: grid; gap: 0; max-height: 164px; margin-top: 6px; overflow-y: auto; scrollbar-width: thin; }
+.supply-item { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; align-items: start; min-height: 40px; padding: 7px 0; border-bottom: 1px solid #f0ece4; }
+.supply-item:last-child { border-bottom: 0; }
+.supply-km { color: var(--orange); font-size: 10px; font-variant-numeric: tabular-nums; }
+.supply-copy { display: grid; gap: 2px; min-width: 0; }
+.supply-copy strong { color: var(--ink); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.supply-copy small { color: var(--ink-faint); font-size: 9px; }
+.supply-copy a { width: fit-content; color: var(--forest); font-size: 9px; text-decoration: underline; text-underline-offset: 2px; }
+.supplies-empty { margin: 7px 0 2px; color: var(--ink-faint); font-size: 10px; line-height: 1.4; }
 .stops-heading { display: flex; justify-content: space-between; align-items: center; margin-top: 23px; color: var(--ink-soft); font-size: 11px; font-weight: 700; }
 .stops-heading span:last-child { color: var(--ink-faint); font-size: 10px; font-weight: 500; }
 .stops-list { display: grid; gap: 0; margin: 10px 0 0; padding: 0; list-style: none; }
@@ -336,6 +371,9 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: v
   .datum-field { grid-template-columns: 1fr; gap: 5px; }
   .metric-grid { gap: 6px; margin-top: 21px; padding: 14px 0; }
   .metric strong { font-size: 20px; }
+  .scenic-score-panel { margin-top: 13px; }
+  .scenic-score-breakdown { grid-template-columns: 1fr 1fr; gap: 5px 9px; }
+  .supplies-list { max-height: 180px; }
   .export-button { min-height: 50px; }
   .profile-chart-wrap { height: 160px; }
   .footer { display: grid; gap: 5px; padding-top: 21px; }

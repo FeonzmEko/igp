@@ -1,7 +1,6 @@
 window.JINGXIAN_CONFIG = Object.freeze({
   osrmBaseUrl: "https://routing.openstreetmap.de/routed-bike",
   geocoderBaseUrl: "https://nominatim.openstreetmap.org/search",
-  // Used only when the public Nominatim endpoint is unavailable or returns no result.
   geocoderFallbackBaseUrl: "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates",
   geocoderPhotonBaseUrl: "https://photon.komoot.io/api/",
   overpassBaseUrl: "https://overpass-api.de/api/interpreter",

@@ -1,3 +1,12 @@
+import { discoverScenicStops as discoverScenicStopsApi, queryRouteAmenities } from "./src/api/osm.js";
+import { calculateScenicScore } from "./src/route/scenic.js";
+import { fetchOnlineRoute as fetchOnlineRouteModule } from "./src/route/planner.js";
+import { enrichRouteElevations as enrichRouteElevationsModule } from "./src/api/elevation.js";
+import { renderScenicDetails, renderSupplies } from "./src/route/presentation.js";
+import { loadSettings, saveSettings } from "./src/state/store.js";
+import { createStreetMap } from "./src/map/map.js";
+import { buildGpxDocument } from "./src/gpx/exporter.js";
+
 (() => {
   "use strict";
 
@@ -12,6 +21,9 @@
     "上海铁路站": { lat: 31.24981, lon: 121.45522 },
     "海盐县": { lat: 30.52549, lon: 120.94638 },
     "海盐": { lat: 30.52549, lon: 120.94638 },
+    // WGS84 coordinates verified against Photon's OpenStreetMap result.
+    "澉浦镇": { lat: 30.3935, lon: 120.889725 },
+    "澉浦": { lat: 30.3935, lon: 120.889725 },
     苏州: { lat: 31.299, lon: 120.585 },
     南京: { lat: 32.060, lon: 118.796 },
     北京: { lat: 39.904, lon: 116.407 },
@@ -117,6 +129,8 @@
   const OSRM_BASE_URL = runtimeConfig.osrmBaseUrl || "https://routing.openstreetmap.de/routed-bike";
   const OSRM_TIMEOUT_MS = Number(runtimeConfig.osrmTimeoutMs) || 12000;
   const GEOCODER_BASE_URL = runtimeConfig.geocoderBaseUrl || "https://nominatim.openstreetmap.org/search";
+  const GEOCODER_FALLBACK_BASE_URL = runtimeConfig.geocoderFallbackBaseUrl || "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates";
+  const GEOCODER_PHOTON_BASE_URL = runtimeConfig.geocoderPhotonBaseUrl || "https://photon.komoot.io/api/";
   const GEOCODER_TIMEOUT_MS = Number(runtimeConfig.geocoderTimeoutMs) || 8000;
   const OVERPASS_BASE_URL = runtimeConfig.overpassBaseUrl || "https://overpass-api.de/api/interpreter";
   const OVERPASS_TIMEOUT_MS = Number(runtimeConfig.overpassTimeoutMs) || 10000;
@@ -194,11 +208,8 @@
   let waypointId = 1;
   let manualWaypoints = [];
   let mapAddMode = false;
-  let streetMap = null;
-  let streetRouteLayer = null;
-  let streetStopLayer = null;
+  let streetMapAdapter = null;
   let activeController = null;
-  const SETTINGS_KEY = "jingxian-route-settings-v1";
   const MAX_GPX_FILE_SIZE = 20 * 1024 * 1024;
   const MAX_GPX_ROUTE_POINTS = 50000;
 
@@ -207,8 +218,7 @@
   }
 
   function persistSettings() {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    saveSettings({
         start: refs.start.value,
         end: refs.end.value,
         scenic: refs.scenic.value,
@@ -217,10 +227,7 @@
         onlineRouting: refs.onlineRouting.checked,
         exportDatum: refs.exportDatum.value,
         manualWaypoints,
-      }));
-    } catch (_error) {
-      // Private browsing or blocked storage should not affect route generation.
-    }
+      });
   }
 
   function setFormMessage(message, warning = false) {
@@ -292,7 +299,7 @@
 
   function restoreSettings() {
     try {
-      const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+      const stored = loadSettings();
       if (!stored || typeof stored !== "object") return;
       if (typeof stored.start === "string" && stored.start.trim()) refs.start.value = stored.start;
       if (typeof stored.end === "string" && stored.end.trim()) refs.end.value = stored.end;
@@ -312,9 +319,7 @@
         }));
         waypointId = Math.max(waypointId, ...manualWaypoints.map((waypoint) => waypoint.id + 1), 1);
       }
-    } catch (_error) {
-      // Ignore malformed or unavailable local settings.
-    }
+    } catch (_error) { /* malformed settings are ignored by the store */ }
   }
 
   function hashString(value) {
@@ -334,7 +339,7 @@
     };
   }
 
-  function parseLocation(raw, fallbackSeed) {
+  function parseLocation(raw) {
     const value = String(raw || "").trim();
     const coordinateMatch = value.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,，\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
     if (coordinateMatch) {
@@ -348,17 +353,15 @@
     const exact = cityPresets[value];
     if (exact) return { label: value, ...exact, exact: true, source: "本地地点库" };
     const normalized = value.replace(/[\s,，]/g, "").toLowerCase();
-    const matchedKey = Object.keys(cityPresets).find((key) => {
+    const matchedKey = Object.keys(cityPresets).sort((a, b) => b.length - a.length).find((key) => {
       const normalizedKey = key.replace(/[\s,，]/g, "").toLowerCase();
-      return normalized.includes(normalizedKey) || normalizedKey.includes(normalized);
+      // A specific address containing a city name still needs geocoding.
+      // Longer suffixes make “海盐澉浦镇” resolve to the town, not Haiyan city.
+      return normalized === normalizedKey || normalized === `${normalizedKey}市` || normalized.endsWith(normalizedKey);
     });
     if (matchedKey) return { label: value, ...cityPresets[matchedKey], exact: true, source: "本地地点库" };
 
-    // A deterministic fallback keeps the offline prototype usable while making the limitation visible.
-    const random = seeded(hashString(`${value}:${fallbackSeed}`));
-    const lat = 24 + random() * 13;
-    const lon = 103 + random() * 17;
-    return { label: value || "未命名地点", lat, lon, exact: false, source: "待定位" };
+    return { label: value || "未命名地点", exact: false, source: "待定位" };
   }
 
   async function geocodeLocation(raw, fallbackSeed) {
@@ -366,29 +369,44 @@
     const parsed = parseLocation(value, fallbackSeed);
     if (parsed.exact) return parsed;
     if (!value) return parsed;
-    const cached = geocodeCache.get(value);
+    const cacheKey = value.toLocaleLowerCase();
+    const cached = geocodeCache.get(cacheKey);
     if (cached) return { ...cached, label: value };
 
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), GEOCODER_TIMEOUT_MS);
+    // Use short independent attempts so a stalled Nominatim request does not
+    // prevent the fallback provider from resolving a perfectly valid town.
+    const attemptTimeoutMs = Math.max(2000, Math.floor(GEOCODER_TIMEOUT_MS / 3));
+    async function requestJson(url, params) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), attemptTimeoutMs);
+      try {
+        const response = await fetch(`${url}?${params.toString()}`, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    let lastError = null;
     try {
       const params = new URLSearchParams({
-        q: `${value}, 中国`,
+        // countrycodes already restricts the search. Avoid appending a translated
+        // country name, which causes poor matches for Chinese township names.
+        q: value,
         format: "jsonv2",
         limit: "1",
         countrycodes: "cn",
         "accept-language": "zh-CN",
       });
-      const response = await fetch(`${GEOCODER_BASE_URL}?${params.toString()}`, {
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const results = await response.json();
+      const results = await requestJson(GEOCODER_BASE_URL, params);
       const result = Array.isArray(results) ? results[0] : null;
       const lat = result ? Number(result.lat) : NaN;
       const lon = result ? Number(result.lon) : NaN;
-      if (!result || !Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("没有匹配的地点");
+      if (!result || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("没有匹配的地点");
       const resolved = {
         label: value,
         lat,
@@ -398,13 +416,75 @@
         source: "公开地图地理编码",
         displayName: String(result.display_name || "").slice(0, 180),
       };
-      geocodeCache.set(value, resolved);
+      geocodeCache.set(cacheKey, resolved);
       return resolved;
     } catch (error) {
-      const message = error?.name === "AbortError" ? "公开地图定位超时" : (error?.message || "公开地图定位失败");
+      lastError = error;
+    }
+
+    // Photon is a second OpenStreetMap-backed provider. It is useful when the
+    // shared Nominatim service is rate-limited, and returns GeoJSON features.
+    try {
+      const params = new URLSearchParams({ q: `${value}, 中国`, limit: "1", lang: "zh" });
+      const payload = await requestJson(GEOCODER_PHOTON_BASE_URL, params);
+      const feature = Array.isArray(payload?.features)
+        ? payload.features.find((item) => Array.isArray(item?.geometry?.coordinates) && item.geometry.coordinates.length >= 2)
+        : null;
+      const lon = feature ? Number(feature.geometry.coordinates[0]) : NaN;
+      const lat = feature ? Number(feature.geometry.coordinates[1]) : NaN;
+      if (!feature || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("没有匹配的地点");
+      const properties = feature.properties || {};
+      const displayName = [properties.name, properties.city, properties.state, properties.country]
+        .filter(Boolean).join(", ");
+      const resolved = {
+        label: value,
+        lat,
+        lon,
+        exact: true,
+        geocoded: true,
+        source: "OpenStreetMap 备用地理编码",
+        displayName: String(displayName).slice(0, 180),
+      };
+      geocodeCache.set(cacheKey, resolved);
+      return resolved;
+    } catch (error) {
+      lastError = error;
+    }
+
+    // ArcGIS' public endpoint is CORS-enabled and often remains available when
+    // the shared Nominatim service is rate-limited. It also handles Chinese
+    // administrative names such as “澉浦镇” well.
+    try {
+      const params = new URLSearchParams({
+        SingleLine: `${value}, 中国`,
+        f: "json",
+        maxLocations: "1",
+        langCode: "CHS",
+        sourceCountry: "CHN",
+        outSR: "4326",
+      });
+      const payload = await requestJson(GEOCODER_FALLBACK_BASE_URL, params);
+      const candidate = Array.isArray(payload?.candidates)
+        ? payload.candidates.find((item) => Number(item?.score) >= 85 && Number.isFinite(Number(item?.location?.y)) && Number.isFinite(Number(item?.location?.x)))
+        : null;
+      const lat = candidate ? Number(candidate.location.y) : NaN;
+      const lon = candidate ? Number(candidate.location.x) : NaN;
+      if (!candidate || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error("没有匹配的地点");
+      const resolved = {
+        label: value,
+        lat,
+        lon,
+        exact: true,
+        geocoded: true,
+        source: "备用地图地理编码",
+        displayName: String(candidate.address || "").slice(0, 180),
+      };
+      geocodeCache.set(cacheKey, resolved);
+      return resolved;
+    } catch (error) {
+      const timeout = lastError?.name === "AbortError" || error?.name === "AbortError";
+      const message = timeout ? "公开地图定位超时" : (error?.message || lastError?.message || "公开地图定位失败");
       return { ...parsed, geocodeError: message };
-    } finally {
-      window.clearTimeout(timeout);
     }
   }
 
@@ -608,6 +688,8 @@
       scenicSource: "GPX 文件航点",
       elevationSource: points.some((point) => point.hasElevation) ? "GPX 文件" : "无高程数据",
       source: "gpx",
+      scenicScore: { score: null, details: {}, features: [], status: "offline", counts: {}, dataSource: "gpx" },
+      supplies: { status: "offline", items: [], dataSource: "gpx" },
     };
   }
 
@@ -706,6 +788,7 @@
       const lat = descriptor.lat === undefined ? point.lat : descriptor.lat;
       const lon = descriptor.lon === undefined ? point.lon : descriptor.lon;
       return {
+        ...descriptor,
         id: stopIndex + 1,
         index,
         name: descriptor.name,
@@ -734,6 +817,7 @@
       end,
       points,
       stops,
+      candidateStops: [...manualStops, ...discoveredStops],
       distanceKm,
       directDistanceKm: haversineKm(start, end),
       detourPercent: haversineKm(start, end) > 0 ? ((distanceKm / haversineKm(start, end)) - 1) * 100 : 0,
@@ -749,6 +833,8 @@
       researched: isHangzhouQiandao || isShanghaiHaiyan,
       scenicSource: manualStops.length ? "用户添加途经点" : isHangzhouQiandao || isShanghaiHaiyan ? "公开骑行内容线索" : discoveredStops.length ? "OpenStreetMap 公共 POI" : "离线演示占位",
       elevationSource: "示意",
+      scenicScore: { score: null, details: {}, features: [], status: "offline", counts: {}, dataSource: "offline" },
+      supplies: { status: "offline", items: [], dataSource: "offline" },
     };
   }
 
@@ -972,52 +1058,11 @@
   }
 
   function initStreetMap() {
-    if (!refs.streetMap || !window.L) return;
-    streetMap = window.L.map(refs.streetMap, { zoomControl: true, preferCanvas: true, attributionControl: true });
-    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors",
-    }).addTo(streetMap);
-    streetRouteLayer = window.L.layerGroup().addTo(streetMap);
-    streetStopLayer = window.L.layerGroup().addTo(streetMap);
-    streetMap.on("click", addWaypointFromMap);
-    refs.mapStage.classList.add("has-street-map");
-    window.setTimeout(() => streetMap?.invalidateSize(), 0);
+    streetMapAdapter = createStreetMap({ element: refs.streetMap, mapStage: refs.mapStage, onMapClick: ({ event }) => addWaypointFromMap(event) });
   }
 
   function renderStreetMap(route) {
-    if (!streetMap || !streetRouteLayer || !streetStopLayer) return;
-    streetRouteLayer.clearLayers();
-    streetStopLayer.clearLayers();
-    const indices = samplePointIndices(route.points.length, 2000);
-    const latLngs = indices.map((index) => [route.points[index].lat, route.points[index].lon]);
-    const isOnline = route.source === "osrm";
-    window.L.polyline(latLngs, {
-      color: isOnline ? "#315a4a" : "#c86e3f",
-      weight: 5,
-      opacity: .9,
-      lineCap: "round",
-      lineJoin: "round",
-      dashArray: isOnline ? undefined : "8 8",
-    }).addTo(streetRouteLayer);
-    const start = route.points[0];
-    const end = route.points[route.points.length - 1];
-    window.L.circleMarker([start.lat, start.lon], { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#315a4a", fillOpacity: 1 }).bindTooltip(route.start.label, { direction: "top", offset: [0, -8] }).addTo(streetStopLayer);
-    window.L.circleMarker([end.lat, end.lon], { radius: 8, color: "#fbfaf7", weight: 3, fillColor: "#c86e3f", fillOpacity: 1 }).bindTooltip(route.end.label, { direction: "top", offset: [0, -8] }).addTo(streetStopLayer);
-    route.stops.forEach((stop) => {
-      window.L.circleMarker([stop.lat, stop.lon], { radius: 6, color: "#fbfaf7", weight: 2, fillColor: "#c86e3f", fillOpacity: 1 })
-        .bindPopup(`<strong>${escapeHtml(stop.name)}</strong><br>${escapeHtml(stop.type)} · ${escapeHtml(stop.note)}`)
-        .addTo(streetStopLayer);
-    });
-    const bounds = window.L.latLngBounds(latLngs);
-    if (bounds.isValid()) streetMap.fitBounds(bounds, { padding: [24, 24], maxZoom: 13, animate: false });
-    window.setTimeout(() => streetMap?.invalidateSize(), 0);
-  }
-
-  function escapeHtml(value) {
-    const node = document.createElement("span");
-    node.textContent = String(value ?? "");
-    return node.innerHTML;
+    streetMapAdapter?.render(route);
   }
 
   function renderMap(route) {
@@ -1235,48 +1280,8 @@
     return { lat: converted.lat.toFixed(6), lon: converted.lon.toFixed(6) };
   }
 
-  function elevationTag(point) {
-    return point.hasElevation && Number.isFinite(point.ele) ? `<ele>${point.ele.toFixed(1)}</ele>` : "";
-  }
-
   function buildGpx(route, datum = "wgs84") {
-    const createdAt = new Date().toISOString();
-    const trackPoints = route.points.map((point) => {
-      const coordinate = serializeCoordinate(point, datum);
-      return `      <trkpt lat="${coordinate.lat}" lon="${coordinate.lon}">${elevationTag(point)}</trkpt>`;
-    }).join("\n");
-    const routePoints = route.points.filter((_, index) => index % 4 === 0 || index === route.points.length - 1).map((point) => {
-      const coordinate = serializeCoordinate(point, datum);
-      return `      <rtept lat="${coordinate.lat}" lon="${coordinate.lon}">${elevationTag(point)}</rtept>`;
-    }).join("\n");
-    const waypoints = [...route.stops, ...getSupportStops(route)].map((stop) => {
-      const link = stop.sourceUrl ? `\n    <link href="${escapeXml(stop.sourceUrl)}"><text>${escapeXml(stop.source || "公开资料线索")}</text></link>` : "";
-      const coordinate = serializeCoordinate(stop, datum);
-      const elevation = stop.hasElevation && Number.isFinite(stop.ele) ? `\n    <ele>${stop.ele.toFixed(1)}</ele>` : "";
-      return `  <wpt lat="${coordinate.lat}" lon="${coordinate.lon}">${elevation}\n    <name>${escapeXml(stop.name)}</name>\n    <desc>${escapeXml(`${stop.type} · ${stop.note} · 线索：${stop.source || "公开资料"}`)}</desc>${link}\n    <type>${escapeXml(stop.gpxType || "scenic")}</type>\n  </wpt>`;
-    }).join("\n");
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Jingxian IGP Scenic Route Lab" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
-  <metadata>
-    <name>${escapeXml(route.routeName)}</name>
-    <desc>${escapeXml(`风景偏好 ${route.scenic}/100 · 最多绕行 ${route.detour}% · ${route.bikeFriendly ? "偏好骑行道路" : "常规道路"} · 坐标基准 ${datum === "gcj02" ? "GCJ-02" : "WGS84"}`)}</desc>
-    <time>${createdAt}</time>
-  </metadata>
-${waypoints}
-  <rte>
-    <name>${escapeXml(route.routeName)}</name>
-    <type>cycling</type>
-${routePoints}
-  </rte>
-  <trk>
-    <name>${escapeXml(route.routeName)}</name>
-    <type>cycling</type>
-    <trkseg>
-${trackPoints}
-    </trkseg>
-  </trk>
-</gpx>
-`;
+    return buildGpxDocument(route, { datum, serializeCoordinate, supportStops: getSupportStops(route) });
   }
 
   function formatDuration(minutes) {
@@ -1330,6 +1335,23 @@ ${trackPoints}
   }
 
   function getSupportStops(route) {
+    if (route.supplies?.status === "ready" || route.supplies?.status === "partial") {
+      return (route.supplies.items || []).map((item, index) => ({
+        id: item.id || `supply-${index + 1}`,
+        index: Number.isFinite(item.index) ? item.index : nearestPointIndex(route.points, item),
+        name: item.name || "补给点",
+        type: item.type === "cafe" ? "咖啡店" : item.type === "restaurant" ? "餐厅" : item.type === "fuel" ? "加油站" : "便利店",
+        note: `距路线约 ${Math.round(item.distance || 0)} 米`,
+        source: "OpenStreetMap 公共 POI",
+        sourceUrl: item.sourceUrl || "",
+        gpxType: item.type || "shop",
+        lat: item.lat,
+        lon: item.lon,
+        ele: item.ele,
+        hasElevation: Boolean(item.hasElevation),
+        km: Number(item.km) || 0,
+      }));
+    }
     const hasExistingSupportStop = (route.stops || []).some((stop) => {
       const gpxType = String(stop.gpxType || "").toLowerCase();
       return gpxType === "fuel" || stop.type === "骑行补给";
@@ -1643,6 +1665,8 @@ ${trackPoints}
     renderMap(route);
     renderStops(route);
     renderProfile(route);
+    renderScenicDetails(route);
+    renderSupplies(route);
     if (route.elevationWarning) warnings.push(route.elevationWarning);
     if (route.source === "offline" && route.detourPercent > route.detour + 1) warnings.push(`离线示意绕行约 ${route.detourPercent.toFixed(0)}%，超过预算 ${route.detour}%；在线校路后会按预算调整。`);
     refs.status.className = warnings.length ? "form-status warning" : "form-status";
@@ -1663,10 +1687,14 @@ ${trackPoints}
   async function generateRoute() {
     activeController?.abort();
     const thisGeneration = ++generationId;
+    const generationController = new AbortController();
+    activeController = generationController;
     setPlanningState(true, "正在准备路线…");
     const startInput = String(refs.start.value || "").trim();
     const endInput = String(refs.end.value || "").trim();
     if (!startInput || !endInput) {
+      generationController.abort();
+      if (activeController === generationController) activeController = null;
       setPlanningState(false);
       setFormMessage("请先填写出发地和目的地。", true);
       return;
@@ -1689,15 +1717,33 @@ ${trackPoints}
       start = resolvedStart;
       end = resolvedEnd;
     }
+    if (!start.exact || !end.exact) {
+      if (refs.startSource) refs.startSource.textContent = formatLocationSource(start);
+      if (refs.endSource) refs.endSource.textContent = formatLocationSource(end);
+      const failures = [start, end].filter((location) => !location.exact).map((location) => (
+        `“${location.label}”${location.geocodeError ? `定位失败（${location.geocodeError}）` : "尚未定位"}`
+      ));
+      const suggestion = refs.onlineRouting.checked
+        ? "请补充所在城市或县名，或输入纬度,经度后重试。"
+        : "请开启在线校路以查找地点，或输入纬度,经度。";
+      if (activeController === generationController) activeController = null;
+      setPlanningState(false);
+      setFormMessage(`${failures.join("；")}。${suggestion}`, true);
+      return;
+    }
     const manualResolution = await resolveManualWaypoints(refs.onlineRouting.checked);
     if (thisGeneration !== generationId) return;
     let discoveredStops = [];
     if (!manualResolution.resolved.length && refs.onlineRouting.checked && start.exact && end.exact && !(/杭州|西湖/.test(start.label) && /千岛湖/.test(end.label)) && !(/上海|上海站|上海火车站/.test(start.label) && /海盐/.test(end.label))) {
       setPlanningState(true, "正在寻找风景点…");
       refs.status.textContent = "正在查找沿线公开景点…";
-      const discovery = await discoverScenicStops(start, end, scenic);
+      const discovery = await discoverScenicStopsApi(start, end, scenic, generationController.signal);
       if (thisGeneration !== generationId) return;
-      discoveredStops = discovery.stops;
+      discoveredStops = (discovery.stops || []).map((element) => {
+        const tags = element.tags || {};
+        const name = String(tags["name:zh"] || tags.name || "沿线景点").slice(0, 70);
+        return { ...element, name, type: tags.tourism === "viewpoint" ? "观景台" : "沿线景点", note: "OpenStreetMap 景点，请确认开放与可达性", source: "OpenStreetMap 公共 POI", sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`, scenicValue: tags.tourism === "viewpoint" ? 30 : tags.natural === "water" ? 25 : tags.natural === "wood" ? 20 : 15 };
+      });
     }
     const route = buildRoute(start, end, scenic, detour, refs.bikeFriendly.checked, manualResolution.resolved, discoveredStops);
     const warnings = manualResolution.warnings.slice();
@@ -1708,10 +1754,12 @@ ${trackPoints}
     render(route, warnings);
 
     if (!refs.onlineRouting.checked) {
+      if (activeController === generationController) activeController = null;
       setPlanningState(false);
       return;
     }
     if (!start.exact || !end.exact) {
+      if (activeController === generationController) activeController = null;
       setPlanningState(false);
       setFormMessage(`${warnings.join(" ")} 无法在线校路，请输入更具体的地点或纬度,经度。`, true);
       return;
@@ -1719,20 +1767,42 @@ ${trackPoints}
 
     setPlanningState(true, "正在校路…");
     setFormMessage("正在请求骑行道路轨迹，完成后会替换示意路线…");
-    const controller = new AbortController();
-    activeController = controller;
-    const timeout = window.setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
     try {
-      const onlineRoute = await fetchOnlineRoute(route, controller.signal);
+      let onlineRoute = await fetchOnlineRouteModule(route, generationController.signal);
       if (thisGeneration !== generationId) return;
+      setPlanningState(true, "正在评估风景与补给…");
+      const [elevationResult, environment] = await Promise.all([
+        enrichRouteElevationsModule(onlineRoute, generationController.signal).catch(() => null),
+        queryRouteAmenities(onlineRoute, generationController.signal),
+      ]);
+      if (thisGeneration !== generationId) return;
+      if (elevationResult) onlineRoute = elevationResult;
+      const scenicResult = calculateScenicScore(onlineRoute, environment);
+      const details = Object.fromEntries(Object.entries(scenicResult.details || {}).map(([key, value]) => [key, typeof value === "object" ? value.contribution : value]));
+      details.negative = Number(details.negative) || 0;
+      onlineRoute.scenicScore = { ...scenicResult, details, features: [
+        scenicResult.counts?.water ? "湖边骑行" : "",
+        scenicResult.counts?.forest ? "林间道路" : "",
+        scenicResult.counts?.park ? "公园绿地" : "",
+        scenicResult.counts?.nature_reserve ? "自然保护区" : "",
+        scenicResult.counts?.viewpoint ? `观景点 ${scenicResult.counts.viewpoint} 个` : "",
+      ].filter(Boolean) };
+      onlineRoute.score = scenicResult.score === null ? "未评估" : scenicResult.score;
+      onlineRoute.scenicSource = environment.status === "ready" || environment.status === "partial"
+        ? "OpenStreetMap 公共 POI"
+        : "在线环境查询不可用";
+      const supplyItems = (environment.features || []).filter((feature) => ["cafe", "restaurant", "fuel"].includes(feature.tags?.amenity) || ["convenience", "supermarket"].includes(feature.tags?.shop)).map((feature) => {
+        const index = nearestPointIndex(onlineRoute.points, feature);
+        return { id: `${feature.type}-${feature.id}`, type: feature.tags.amenity || feature.tags.shop, name: feature.tags["name:zh"] || feature.tags.name || "未命名补给点", lat: feature.lat, lon: feature.lon, distance: haversineKm(onlineRoute.points[index], feature) * 1000, km: routeDistance(onlineRoute.points, index), sourceUrl: `https://www.openstreetmap.org/${feature.type}/${feature.id}` };
+      }).filter((supply) => Number.isFinite(supply.distance) && supply.distance <= 500);
+      onlineRoute.supplies = { status: environment.status === "ok" ? "ready" : environment.status, items: supplyItems };
       render(onlineRoute, []);
     } catch (error) {
       if (thisGeneration !== generationId) return;
       const message = error?.name === "AbortError" ? "请求超时" : (error?.message || "网络不可用");
       render(route, [`在线道路校路失败（${message}），已保留离线示意路线。`]);
     } finally {
-      window.clearTimeout(timeout);
-      if (activeController === controller) activeController = null;
+      if (activeController === generationController) activeController = null;
       if (thisGeneration === generationId) setPlanningState(false);
     }
   }

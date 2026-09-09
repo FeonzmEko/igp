@@ -81,6 +81,8 @@ npm run cf:deploy
 
 默认使用公开服务：Nominatim 地理编码、OpenStreetMap 骑行路由、Overpass 公共 POI 查询和 Open-Elevation 高程服务。公共服务可能限流或超时，页面会保留离线预览并明确提示。服务地址和超时可在 `config.js` 修改。
 
+在线路线会在道路周边 500 米内查询水域、森林、公园、观景点、自然保护区、工业区和高速道路，并生成 0-100 风景指数；补给查询会查找咖啡店、餐厅、加油站和便利店/超市。接口失败时结果标记为未评估，不会用离线示意数据冒充真实评分。
+
 ## 输入与导出
 
 - 地点支持城市、车站、县城、景区、地址和 `纬度, 经度`。
@@ -99,7 +101,11 @@ npm run cf:deploy
 - `index.html` 页面结构
 - `styles.css` 响应式界面和地图/爬升图样式
 - `config.js` 在线服务地址和超时配置
+- `config.example.js` 可公开提交的配置模板，不放置密钥
 - `app.js` 地点解析、途经点编辑、地理编码、POI 发现、骑行道路校路、高程、GPX 导入导出
+- `src/api/` Overpass、OSRM、高程和请求超时适配层
+- `src/route/` 风景评分、候选景点排序和结果展示
+- `src/map/`、`src/state/`、`src/gpx/` 地图、状态和 GPX 的渐进式模块边界
 - `scripts/build.mjs` 静态发布构建
 - `scripts/smoke-check.mjs` 无依赖静态绑定检查
 - `MVP_ROUTE_PLANNER.md` 路线算法、GPX 约定和风险说明

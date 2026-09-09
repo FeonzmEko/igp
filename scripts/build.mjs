@@ -9,6 +9,7 @@ const files = [
   "styles.css",
   "app.js",
   "config.js",
+  "config.example.js",
   "README.md",
   "MVP_ROUTE_PLANNER.md",
   "_headers",
@@ -20,6 +21,7 @@ const files = [
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await Promise.all(files.map((file) => copyFile(resolve(root, file), resolve(output, file))));
+await cp(resolve(root, "src"), resolve(output, "src"), { recursive: true });
 const leafletOutput = resolve(output, "vendor", "leaflet");
 await mkdir(leafletOutput, { recursive: true });
 await Promise.all([
