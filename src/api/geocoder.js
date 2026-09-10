@@ -8,11 +8,24 @@ const administrativeName = (value) => normalize(value).replace(/(特别行政区
 // Photon/OSM often indexes a POI by its local name and returns no result when
 // every containing province/city/county is repeated in the query. Keep the
 // original query available for address providers, but use this local-name
-// variant for POI search (e.g. “浙江省嘉兴市海盐县澉浦镇” -> “澉浦镇”).
-function localPlaceQuery(value) {
+// variant for POI search (e.g. “浙江省嘉兴市海盐县澉浦镇” -> “澉浦镇 嘉兴市”).
+function localPlaceName(value) {
   const original = String(value || "").trim();
   const stripped = original.replace(/^(?:中华人民共和国|中国)?(?:[\u4e00-\u9fa5]{1,12}(?:省|市|县|区|旗|州))+/, "").trim();
   return stripped && stripped !== original ? stripped : original;
+}
+
+function localPlaceQuery(value) {
+  const original = String(value || "").trim();
+  const stripped = localPlaceName(original);
+  if (!stripped || stripped === original) return original;
+  // Keep the nearest city as a disambiguation token. Photon ranks “人民公园”
+  // in Guangzhou before Shanghai, while “人民公园 上海市” returns the exact
+  // Shanghai park within the same request.
+  const withoutProvince = original.replace(/^(?:中华人民共和国|中国)?[\u4e00-\u9fa5]{1,12}?省/u, "");
+  const cityMatches = withoutProvince.match(/[\u4e00-\u9fa5]{1,12}?市/gu) || [];
+  const city = cityMatches.at(-1) || "";
+  return city && !stripped.includes(city) ? `${stripped} ${city}` : stripped;
 }
 
 function geocoderError(message, code) {
@@ -95,7 +108,7 @@ function scoreCandidate(candidate, query, contextQuery = query) {
   const country = String(candidate.country || "").toLowerCase();
   // All route input searches currently target China. Never accept an unrelated
   // overseas namesake when an upstream provider ignores the country filter.
-  if (country && country !== "cn" && country !== "chn") return -1;
+  if (country && country !== "cn" && country !== "chn" && country !== "china") return -1;
   if (!country && (Number(candidate.lat) < 18 || Number(candidate.lat) > 54
     || Number(candidate.lon) < 73 || Number(candidate.lon) > 136)) return -1;
   if (Number.isFinite(candidate.providerScore) && candidate.providerScore < 85) return -1;
@@ -105,8 +118,9 @@ function scoreCandidate(candidate, query, contextQuery = query) {
   // This prevents “上海市人民公园” from selecting the same-named Guangzhou
   // park merely because Photon returned it first.
   const contextAreas = String(contextQuery || "").match(/(?:[\u4e00-\u9fa5]{1,12}?(?:省|市|县|区|旗|州))/g) || [];
-  if (contextAreas.length && query !== contextQuery) {
-    const matchingArea = contextAreas.some((area) => {
+  const constrainedAreas = contextAreas.filter((area) => /(?:省|市)$/u.test(area));
+  if (constrainedAreas.length && query !== contextQuery) {
+    const matchingArea = constrainedAreas.some((area) => {
       const wantedArea = administrativeName(area);
       return candidate.areas.some((resultArea) => administrativeName(resultArea) === wantedArea);
     });
@@ -198,6 +212,7 @@ export function createGeocoder(options = {}) {
     const totalTimeoutMs = Math.max(1, Number(config.geocoderTotalTimeoutMs) || 15000);
     const fallbackDelayMs = Math.max(0, Number(config.geocoderFallbackDelayMs ?? 400));
     const placeQuery = localPlaceQuery(label);
+    const placeName = localPlaceName(label);
     const providers = [
       {
         name: "Photon 地点搜索", delay: 0,
@@ -205,19 +220,19 @@ export function createGeocoder(options = {}) {
         // The public Photon instance does NOT support lang=zh (HTTP 400).
         // With no lang parameter it returns the place's original Chinese name.
         params: { q: placeQuery, limit: "8" }, parse: candidatesFromPhoton,
-        matchQuery: placeQuery,
+        matchQuery: placeName,
       },
       {
         name: "ArcGIS 地址与地点搜索", delay: fallbackDelayMs,
         url: config.geocoderFallbackBaseUrl || "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates",
         params: { SingleLine: placeQuery, f: "json", maxLocations: "5", langCode: "CHS", sourceCountry: "CHN", outSR: "4326", outFields: "PlaceName,Match_addr,Addr_type,City,Region,Country" },
-        parse: candidatesFromArcgis, matchQuery: placeQuery,
+        parse: candidatesFromArcgis, matchQuery: placeName,
       },
       {
         name: "OpenStreetMap 地理编码", delay: fallbackDelayMs * 2,
         url: config.geocoderBaseUrl || "https://nominatim.openstreetmap.org/search",
         params: { q: placeQuery, format: "jsonv2", limit: "5", countrycodes: "cn", "accept-language": "zh-CN", addressdetails: "1", namedetails: "1" },
-        parse: candidatesFromNominatim, matchQuery: placeQuery, nominatim: true,
+        parse: candidatesFromNominatim, matchQuery: placeName, nominatim: true,
       },
     ];
 

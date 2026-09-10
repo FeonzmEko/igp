@@ -95,7 +95,7 @@ test("province/city/county prefixes are stripped for local town searches", async
   } });
   const point = await geocode("浙江省嘉兴市海盐县澉浦镇");
   assert.equal(point.lat, 30.3935);
-  assert.equal(requests[0].searchParams.get("q"), "澉浦镇");
+  assert.equal(requests[0].searchParams.get("q"), "澉浦镇 嘉兴市");
 });
 
 test("foreign namesakes and invalid coordinates are rejected", async () => {
